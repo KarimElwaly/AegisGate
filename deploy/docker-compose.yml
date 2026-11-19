@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aegisgate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aegisgate
+      POSTGRES_USER: aegis_user
+      POSTGRES_PASSWORD: aegis_pass
+    volumes:
+      - aegis_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegis_user -d aegisgate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: aegisgate-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - aegis_redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  aegisgate-engine:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.engine
+    container_name: aegisgate-engine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AEGIS_ENV: prod
+      DATABASE_URL: postgresql+asyncpg://aegis_user:aegis_pass@postgres:5432/aegisgate
+      REDIS_URL: redis://redis:6379/0
+      AEGIS_SECRET_KEY: ${AEGIS_SECRET_KEY:-insecure-default-key-change-in-prod-123456}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  aegis_pgdata:
+  aegis_redisdata:

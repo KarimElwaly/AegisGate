@@ -1,0 +1,109 @@
+id: base-enterprise
+name: Base Enterprise Policy Pack
+version: 1.0.0
+execution_mode: enforce
+description: Standard baseline guardrails, PII reversible tokenization, secrets blocking, and command safety.
+
+scanners:
+  - name: secrets_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      action_on_match: block
+      detect_jwt: true
+      detect_aws_keys: true
+      detect_private_keys: true
+      detect_generic_api_keys: true
+
+  - name: pii_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 150
+    on_timeout: flag
+    config:
+      mode: reversible_tokenize
+      detect_emails: true
+      detect_phone_numbers: true
+      detect_credit_cards: true
+      detect_ssn: true
+      detect_ipv4: true
+
+  - name: tool_param_guard
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      action_on_violation: block
+      block_path_traversal: true
+      block_shell_metachars: true
+      enforce_sql_read_only: false
+
+  - name: entropy_size_guard
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      max_payload_bytes: 1048576
+      max_estimated_tokens: 32768
+      check_entropy: true
+      max_shannon_entropy: 4.8
+
+  - name: grounding_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      action_on_ungrounded: flag
+      require_citations_for_reports: false
+
+resolvers: []
+budgets: {}
+
+rules:
+  - id: base-block-critical-secrets
+    name: Block Critical Secrets
+    priority: 10
+    description: Deny any request where secrets_scanner reports block
+    condition:
+      field: scanner_findings.secrets_scanner.status
+      operator: eq
+      value: block
+    action:
+      decision: DENY
+      severity: critical
+      reason: "High-risk cryptographic secret or API token detected in payload"
+      compliance_tags: ["OWASP-LLM06", "SOC2-CC6.1"]
+
+  - id: base-block-dangerous-params
+    name: Block Dangerous Tool Parameters
+    priority: 20
+    stages: ["tool_pre_call"]
+    description: Deny tool invocations that contain path traversal or shell metacharacters
+    condition:
+      field: scanner_findings.tool_param_guard.status
+      operator: eq
+      value: block
+    action:
+      decision: DENY
+      severity: high
+      reason: "Dangerous command syntax or path traversal detected in tool parameters"
+      compliance_tags: ["OWASP-LLM02", "CWE-78", "CWE-22"]
+
+  - id: base-block-oversized-payload
+    name: Block Payload Size / Entropy Exfiltration
+    priority: 30
+    description: Deny requests exceeding payload limits or showing high entropy exfiltration
+    condition:
+      field: scanner_findings.entropy_size_guard.status
+      operator: eq
+      value: block
+    action:
+      decision: DENY
+      severity: high
+      reason: "Payload size limit or high-entropy data exfiltration threshold exceeded"
+      compliance_tags: ["OWASP-LLM04", "NIST-AI-RMF-MANAGE"]
