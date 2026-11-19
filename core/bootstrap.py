@@ -12,6 +12,8 @@ from plugins.scanners.tier1_deterministic.json_schema_scanner import JsonSchemaS
 from plugins.scanners.tier1_deterministic.pii_scanner import PiiScanner
 from plugins.scanners.tier1_deterministic.secrets_scanner import SecretsScanner
 from plugins.scanners.tier1_deterministic.tool_param_guard import ToolParamGuard
+from plugins.scanners.tier2_local_ml.onnx_classifier import ONNXInjectionClassifier
+from plugins.scanners.tier3_llm_judge.judge_scanner import LLMJudgeScanner
 from plugins.scanners.webhook_scanner import WebhookScanner
 
 logger = get_logger("core.bootstrap")
@@ -28,7 +30,7 @@ def bootstrap_system() -> None:
     registry = get_plugin_registry()
     policy_engine = get_yaml_policy_engine()
 
-    # 1. Register Built-in Tier-1 Scanners
+    # 1. Register Tier-1 Deterministic Scanners
     registry.register_scanner(SecretsScanner())
     registry.register_scanner(PiiScanner())
     registry.register_scanner(JsonSchemaScanner())
@@ -37,12 +39,18 @@ def bootstrap_system() -> None:
     registry.register_scanner(EvidenceGroundingScanner())
     registry.register_scanner(WebhookScanner())
 
-    # 2. Register Built-in Context Resolvers
+    # 2. Register Tier-2 Local ML Classifier
+    registry.register_scanner(ONNXInjectionClassifier())
+
+    # 3. Register Tier-3 Semantic LLM Judge
+    registry.register_scanner(LLMJudgeScanner())
+
+    # 4. Register Context Resolvers
     registry.register_resolver(HTTPContextResolver())
     registry.register_resolver(RedisStateResolver())
     registry.register_resolver(StaticLookupResolver())
 
-    # 3. Auto-load base-enterprise policy pack if present on filesystem
+    # 5. Auto-load base-enterprise policy pack if present on filesystem
     base_pack_path = Path("policy_packs/base-enterprise/policy.yaml")
     if base_pack_path.exists():
         try:
