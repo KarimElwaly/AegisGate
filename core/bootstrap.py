@@ -3,6 +3,9 @@ from pathlib import Path
 from core.logger import get_logger
 from core.policy_engine.yaml_engine import get_yaml_policy_engine
 from core.registry.registry import get_plugin_registry
+from plugins.notifiers.webhook_notifier import WebhookNotifier
+from plugins.notifiers.slack_notifier import SlackNotifier
+from plugins.notifiers.siem_cef_notifier import SiemCefNotifier
 from plugins.resolvers.http_resolver import HTTPContextResolver
 from plugins.resolvers.redis_resolver import RedisStateResolver
 from plugins.resolvers.static_resolver import StaticLookupResolver
@@ -50,15 +53,21 @@ def bootstrap_system() -> None:
     registry.register_resolver(RedisStateResolver())
     registry.register_resolver(StaticLookupResolver())
 
-    # 5. Auto-load base-enterprise policy pack if present on filesystem
-    base_pack_path = Path("policy_packs/base-enterprise/policy.yaml")
-    if base_pack_path.exists():
-        try:
-            with open(base_pack_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                policy_engine.load_from_yaml_string(content)
-                logger.info("Loaded base-enterprise policy pack")
-        except Exception as e:
-            logger.error("Failed to load base-enterprise policy pack", error=str(e))
+    # 5. Register Notifiers
+    registry.register_notifier(WebhookNotifier())
+    registry.register_notifier(SlackNotifier())
+    registry.register_notifier(SiemCefNotifier())
+
+    # 6. Auto-load all policy packs in policy_packs/ directory
+    packs_dir = Path("policy_packs")
+    if packs_dir.exists():
+        for pack_file in packs_dir.glob("*/policy.yaml"):
+            try:
+                with open(pack_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    policy_engine.load_from_yaml_string(content)
+                    logger.info("Loaded policy pack", path=str(pack_file))
+            except Exception as e:
+                logger.error("Failed to load policy pack", path=str(pack_file), error=str(e))
 
     _bootstrapped = True

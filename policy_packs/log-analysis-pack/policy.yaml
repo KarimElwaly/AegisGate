@@ -1,0 +1,98 @@
+id: log-analysis-pack
+name: High-Volume Log Anomaly Analysis Policy Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Secure log analysis with Tier-2 local ML injection classification on raw logs, reversible PII/IP tokenization, and sovereign model routing.
+
+scanners:
+  - name: tier2_onnx_injection_classifier
+    enabled: true
+    tier: 2
+    timeout_ms: 80
+    on_timeout: flag
+    config:
+      action_on_match: block
+      threshold: 0.75
+      inspect_untrusted_data_only: true
+
+  - name: pii_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      mode: reversible_tokenize
+      detect_emails: true
+      detect_phone_numbers: false
+      detect_credit_cards: false
+      detect_ssn: false
+      detect_ipv4: true
+
+  - name: json_schema_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      action_on_violation: block
+      target_field: "output_payload"
+      expected_schema:
+        type: object
+        required: ["anomalies", "severity", "confidence"]
+        properties:
+          anomalies:
+            type: array
+          severity:
+            type: string
+          confidence:
+            type: number
+
+rules:
+  - id: log-block-indirect-prompt-injection
+    name: Block Indirect Prompt Injection in Logs
+    priority: 8
+    description: Deny requests where prompt injection is embedded inside raw log payloads
+    condition:
+      any:
+        - field: scanner_findings.tier2_onnx_injection_classifier.status
+          operator: eq
+          value: block
+        - field: scanner_findings.onnx_injection_classifier.status
+          operator: eq
+          value: block
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Indirect prompt injection detected inside untrusted log payload"
+      compliance_tags: ["OWASP-LLM01", "NIST-AI-RMF-MANAGE"]
+
+  - id: log-enforce-sovereign-llm-routing
+    name: Restrict to Local Sovereign LLM
+    priority: 14
+    stages: ["llm_input"]
+    description: Raw enterprise logs must never be routed to unapproved public frontier endpoints
+    condition:
+      field: metadata.model
+      operator: not_in
+      value: ["local-llama-3", "mistral-7b-local", "sovereign-qwen", "ollama/llama3"]
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Log data routing policy violation: model must be an approved on-premise sovereign LLM"
+      compliance_tags: ["GDPR-Art32", "SOC2-CC6.1"]
+
+  - id: log-enforce-anomaly-report-schema
+    name: Enforce Anomaly Report Schema
+    priority: 22
+    stages: ["llm_output"]
+    description: Validate structured anomaly reports produced by log analysis agent
+    condition:
+      field: scanner_findings.json_schema_scanner.status
+      operator: eq
+      value: block
+    action:
+      decision: DENY
+      severity: high
+      reason: "Log analysis report violated required JSON schema"
+      compliance_tags: ["OWASP-LLM02"]

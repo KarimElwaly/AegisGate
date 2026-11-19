@@ -25,6 +25,10 @@ class PluginRegistry:
         if not issubclass(type(scanner), BaseScanner):
             raise TypeError(f"Scanner {scanner} must inherit from BaseScanner")
         self._scanners[scanner.name] = scanner
+        for prefix in ("tier1_", "tier2_", "tier3_"):
+            if scanner.name.startswith(prefix):
+                self._scanners[scanner.name[len(prefix):]] = scanner
+
         logger.info(
             "Registered scanner",
             name=scanner.name,

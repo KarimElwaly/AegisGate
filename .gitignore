@@ -50,6 +50,7 @@ Thumbs.db
 # AegisGate local data
 *.sqlite
 *.sqlite3
+*.db
 data/
 logs/
 .gitconfig

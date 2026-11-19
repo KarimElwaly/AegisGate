@@ -7,12 +7,12 @@ from core.schemas.events import EvaluationRequest
 
 
 class JsonSchemaScannerConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     enabled: bool = True
     action_on_error: str = "block"  # "block" | "flag"
     target_field: str = "auto"  # "output_payload" | "parameters" | "auto"
-    schema_definition: Dict[str, Any] = Field(default_factory=dict)
+    schema_definition: Dict[str, Any] = Field(default_factory=dict, alias="expected_schema")
 
 
 class JsonSchemaScanner(BaseScanner):
@@ -29,7 +29,11 @@ class JsonSchemaScanner(BaseScanner):
         config: BaseModel,
     ) -> ScannerResult:
         cfg = config if isinstance(config, JsonSchemaScannerConfig) else JsonSchemaScannerConfig(**config.model_dump())
-        if not cfg.enabled or not cfg.schema_definition:
+        active_schema = cfg.schema_definition or getattr(cfg, "expected_schema", {})
+        if not active_schema and hasattr(cfg, "model_dump"):
+            active_schema = cfg.model_dump().get("expected_schema", {}) or {}
+
+        if not cfg.enabled or not active_schema:
             return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
 
         data_to_validate: Any = None
@@ -66,7 +70,7 @@ class JsonSchemaScanner(BaseScanner):
             return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
 
         try:
-            jsonschema.validate(instance=data_to_validate, schema=cfg.schema_definition)
+            jsonschema.validate(instance=data_to_validate, schema=active_schema)
             return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
         except jsonschema.ValidationError as err:
             return ScannerResult(

@@ -30,6 +30,8 @@ class YamlPolicyEngine(PolicyEngineInterface):
     def get_policy_pack(self, pack_id: str) -> Optional[PolicyPackDefinition]:
         return self._policy_packs.get(pack_id)
 
+    get_registered_pack = get_policy_pack
+
     def resolve_inheritance(self, pack: PolicyPackDefinition) -> PolicyPackDefinition:
         """Resolves pack inheritance if 'extends' is specified."""
         if not pack.extends:
@@ -170,8 +172,17 @@ class YamlPolicyEngine(PolicyEngineInterface):
         resolved_pack = self.resolve_inheritance(policy_pack)
 
         # Build context bundle for expression evaluation
-        findings_map = {f.scanner_name: f.model_dump() for f in scanner_findings}
-        findings_status_map = {f.scanner_name: f.status for f in scanner_findings}
+        findings_map: Dict[str, Any] = {}
+        findings_status_map: Dict[str, str] = {}
+        for f in scanner_findings:
+            dumped = f.model_dump()
+            findings_map[f.scanner_name] = dumped
+            findings_status_map[f.scanner_name] = f.status
+            for pfx in ("tier1_", "tier2_", "tier3_"):
+                if f.scanner_name.startswith(pfx):
+                    short_name = f.scanner_name[len(pfx):]
+                    findings_map[short_name] = dumped
+                    findings_status_map[short_name] = f.status
 
         current_stage = request.stage.value if hasattr(request.stage, "value") else str(request.stage)
 

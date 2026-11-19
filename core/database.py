@@ -1,4 +1,6 @@
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from sqlalchemy.pool import NullPool, StaticPool
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -25,14 +27,21 @@ def get_engine() -> AsyncEngine:
     if _engine is None:
         settings = get_settings()
         connect_args = {}
+        engine_kwargs = {
+            "echo": False,
+            "future": True,
+        }
         if "sqlite" in settings.DATABASE_URL:
             connect_args["check_same_thread"] = False
+            if settings.AEGIS_ENV == "test":
+                engine_kwargs["poolclass"] = NullPool
+            elif ":memory:" in settings.DATABASE_URL:
+                engine_kwargs["poolclass"] = StaticPool
 
+        engine_kwargs["connect_args"] = connect_args
         _engine = create_async_engine(
             settings.DATABASE_URL,
-            echo=False,
-            future=True,
-            connect_args=connect_args,
+            **engine_kwargs,
         )
     return _engine
 
@@ -49,7 +58,21 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return _sessionmaker
 
 
+@asynccontextmanager
+async def db_context() -> AsyncGenerator[AsyncSession, None]:
+    """Safe context manager for background services & non-request DB operations."""
+    maker = get_sessionmaker()
+    async with maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI Depends generator for request-scoped database sessions."""
     maker = get_sessionmaker()
     async with maker() as session:
         try:

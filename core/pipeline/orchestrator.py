@@ -394,15 +394,46 @@ class PipelineOrchestrator:
         approval_ticket: Optional[ApprovalTicketInfo] = None
         if nominal_decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
             approval_cfg = rule_mutations.get("approval_config", {})
-            approval_ticket = ApprovalTicketInfo(
-                ticket_id=None,
-                status="pending",
-                required_approvals=approval_cfg.get("required_approvals", 1),
-            )
+            try:
+                from core.hitl.engine import get_hitl_engine
+                hitl_eng = get_hitl_engine()
+                pack_name = getattr(policy_pack, "id", getattr(policy_pack, "name", "default")) if policy_pack else "default"
+                created_ticket = await hitl_eng.create_ticket(
+                    request=request,
+                    verdict=EvaluationVerdict(
+                        decision=effective_decision,
+                        effective_mode=effective_mode,
+                        would_have_decided=would_have_decided,
+                        risk_score=risk_score,
+                        triggered_rules=triggered_rules,
+                        scanner_findings=all_findings,
+                        resolved_context=resolved_context,
+                        latency_ms=0.0,
+                    ),
+                    policy_pack_id=pack_name,
+                    required_approvals=approval_cfg.get("required_approvals", 1),
+                    required_approver_roles=approval_cfg.get("required_approver_roles"),
+                    ttl_seconds=approval_cfg.get("ttl_seconds", 300),
+                    callback_url=approval_cfg.get("callback_url"),
+                    callback_secret=approval_cfg.get("callback_secret"),
+                )
+                approval_ticket = ApprovalTicketInfo(
+                    ticket_id=created_ticket.ticket_id,
+                    status=created_ticket.status,
+                    required_approvals=created_ticket.required_approvals,
+                    expires_at=created_ticket.expires_at,
+                )
+            except Exception as e:
+                logger.warning("hitl_ticket_creation_failed", error=str(e))
+                approval_ticket = ApprovalTicketInfo(
+                    ticket_id=None,
+                    status="pending",
+                    required_approvals=approval_cfg.get("required_approvals", 1),
+                )
 
         latency_ms = (time.perf_counter() - start_time) * 1000.0
 
-        return EvaluationVerdict(
+        verdict = EvaluationVerdict(
             decision=effective_decision,
             effective_mode=effective_mode,
             would_have_decided=would_have_decided,
@@ -417,6 +448,100 @@ class PipelineOrchestrator:
             approval_ticket=approval_ticket,
             latency_ms=round(latency_ms, 2),
         )
+
+        # Audit Ledger Recording
+        if getattr(request, "record_audit", True):
+            try:
+                from core.audit.ledger import AuditLedger
+                ledger = AuditLedger()
+                pack_name = getattr(policy_pack, "id", getattr(policy_pack, "name", "default")) if policy_pack else "default"
+                pack_ver = getattr(policy_pack, "version", "1.0.0") if policy_pack else "1.0.0"
+                eff_mode_str = effective_mode.value if hasattr(effective_mode, "value") else str(effective_mode)
+                would_dec_str = would_have_decided.value if hasattr(would_have_decided, "value") else str(would_have_decided)
+
+                if getattr(request, "record_audit_sync", False):
+                    await ledger.record_event(
+                        request=request,
+                        verdict=verdict,
+                        policy_pack_id=pack_name,
+                        policy_pack_version=pack_ver,
+                        effective_mode=eff_mode_str,
+                        would_have_decided=would_dec_str,
+                    )
+                else:
+                    asyncio.create_task(
+                        ledger.record_event(
+                            request=request,
+                            verdict=verdict,
+                            policy_pack_id=pack_name,
+                            policy_pack_version=pack_ver,
+                            effective_mode=eff_mode_str,
+                            would_have_decided=would_dec_str,
+                        )
+                    )
+            except Exception as e:
+                logger.warning("audit_recording_failed", error=str(e))
+
+        # Live Shadow Mode Evaluation
+        shadow_pack_id = getattr(request, "shadow_policy_pack_id", None)
+        if shadow_pack_id:
+            asyncio.create_task(
+                self._evaluate_shadow(request, verdict, shadow_pack_id)
+            )
+
+        return verdict
+
+    async def _evaluate_shadow(
+        self,
+        request: EvaluationRequest,
+        active_verdict: EvaluationVerdict,
+        shadow_pack_id: str,
+    ) -> None:
+        """Asynchronously evaluates candidate shadow policy pack and records deltas."""
+        try:
+            shadow_pack = self.policy_engine.get_registered_pack(shadow_pack_id)
+            if not shadow_pack:
+                return
+
+            shadow_decision, risk, triggered, _ = await self.policy_engine.evaluate(
+                request=request,
+                scanner_findings=active_verdict.scanner_findings,
+                resolved_context=active_verdict.resolved_context or {},
+                policy_pack=shadow_pack,
+            )
+            shadow_verdict = EvaluationVerdict(
+                decision=shadow_decision,
+                effective_mode=EffectiveModeEnum.SHADOW,
+                risk_score=risk,
+                triggered_rules=triggered,
+                scanner_findings=active_verdict.scanner_findings,
+                resolved_context=active_verdict.resolved_context,
+                latency_ms=0.0,
+            )
+
+            active_dec = active_verdict.decision.value if hasattr(active_verdict.decision, "value") else str(active_verdict.decision)
+            shadow_dec = shadow_decision.value if hasattr(shadow_decision, "value") else str(shadow_decision)
+
+            if active_dec != shadow_dec:
+                from core.simulator.shadow import get_shadow_delta_manager
+                mgr = get_shadow_delta_manager()
+                await mgr.record_delta(
+                    tenant_id=request.tenant_id,
+                    workspace_id=request.workspace_id,
+                    trace_id=request.trace_id,
+                    active_pack_id=request.policy_pack_id,
+                    active_version="active",
+                    shadow_pack_id=shadow_pack_id,
+                    shadow_version=getattr(shadow_pack, "version", "1.0.0"),
+                    active_verdict=active_verdict,
+                    shadow_verdict=shadow_verdict,
+                    request_summary={
+                        "stage": request.stage.value if hasattr(request.stage, "value") else str(request.stage),
+                        "action": request.action.name if hasattr(request.action, "name") else str(request.action),
+                    },
+                )
+        except Exception as e:
+            logger.warning("shadow_evaluation_failed", error=str(e))
 
 
 default_orchestrator = PipelineOrchestrator()

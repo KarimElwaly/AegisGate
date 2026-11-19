@@ -1,0 +1,150 @@
+id: soc-investigation-pack
+name: Autonomous SOC Investigation & Containment Policy Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Real-time SOC guardrails with dynamic CMDB asset enrichment, DC protection, and tiered HITL single/dual containment approval.
+
+resolvers:
+  - name: http_context_resolver
+    enabled: true
+    timeout_ms: 300
+    cache_ttl_seconds: 60
+    config:
+      url: "http://127.0.0.1:9099/v1/assets/{action.parameters.asset_id}"
+      method: "GET"
+      headers:
+        X-Aegis-Tenant: "{tenant_id}"
+      extract_json_path: ""
+
+scanners:
+  - name: grounding_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      action_on_ungrounded: flag
+      require_citations_for_reports: true
+
+  - name: tool_param_guard
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      action_on_violation: block
+      block_path_traversal: true
+      block_shell_metachars: true
+      enforce_sql_read_only: false
+
+rules:
+  - id: soc-auto-allow-readonly-queries
+    name: Auto-Allow Read-Only SOC Investigation Tools
+    priority: 5
+    stages: ["tool_pre_call"]
+    description: Permissive fast-path for non-destructive SOC telemetry and SIEM search tools
+    condition:
+      field: action.name
+      operator: in
+      value: ["query_siem", "get_host_telemetry", "list_alerts", "fetch_pcap", "get_process_tree"]
+    action:
+      decision: ALLOW
+      severity: low
+      reason: "Read-only SOC investigation tool authorized"
+      compliance_tags: ["SOC2-CC6.1"]
+
+  - id: soc-deny-domain-controller-containment
+    name: Block Containment on Domain Controllers & Critical Infra
+    priority: 8
+    stages: ["tool_pre_call"]
+    description: Absolute prohibition against automated or single-operator disruption of Domain Controllers
+    condition:
+      all:
+        - field: action.name
+          operator: in
+          value: ["isolate_host", "block_ip", "disable_user", "revoke_credential"]
+        - any:
+            - field: resolved_context.is_domain_controller
+              operator: eq
+              value: true
+            - field: action.parameters.is_domain_controller
+              operator: eq
+              value: true
+            - field: action.parameters.ip
+              operator: in
+              value: ["10.0.0.1", "10.0.0.2", "192.168.1.1"]
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Containment action blocked: Target asset is an essential Domain Controller or core network gateway"
+      compliance_tags: ["NIST-CSF-PR.AC", "OWASP-LLM08"]
+
+  - id: soc-suspend-tier0-dual-approval
+    name: Require Dual Approval for Tier-0 Asset Containment
+    priority: 15
+    stages: ["tool_pre_call"]
+    description: Suspend containment on Tier-0 assets until two distinct approvers authorize (4-eyes principle)
+    condition:
+      all:
+        - field: action.name
+          operator: in
+          value: ["isolate_host", "block_ip", "disable_user"]
+        - any:
+            - field: resolved_context.asset_tier
+              operator: eq
+              value: "tier0"
+            - field: action.parameters.asset_tier
+              operator: eq
+              value: "tier0"
+    action:
+      decision: SUSPEND_FOR_APPROVAL
+      severity: critical
+      reason: "Containment on Tier-0 mission-critical asset requires Dual Approval (4-eyes principle)"
+      compliance_tags: ["SOC2-CC6.3", "NIST-AI-RMF-GOVERN"]
+      approval_config:
+        required_approvals: 2
+        required_approver_roles: ["security_lead", "soc_manager"]
+        ttl_seconds: 600
+
+  - id: soc-suspend-standard-single-approval
+    name: Require Single Approval for Standard Asset Containment
+    priority: 20
+    stages: ["tool_pre_call"]
+    description: Suspend containment on standard enterprise assets for human analyst authorization
+    condition:
+      all:
+        - field: action.name
+          operator: in
+          value: ["isolate_host", "block_ip", "disable_user"]
+        - any:
+            - field: resolved_context.asset_tier
+              operator: eq
+              value: "standard"
+            - field: action.parameters.asset_tier
+              operator: eq
+              value: "standard"
+    action:
+      decision: SUSPEND_FOR_APPROVAL
+      severity: high
+      reason: "Standard asset containment requires human analyst authorization"
+      compliance_tags: ["SOC2-CC6.3"]
+      approval_config:
+        required_approvals: 1
+        required_approver_roles: ["soc_analyst", "security_lead"]
+        ttl_seconds: 300
+
+  - id: soc-enforce-evidence-grounding
+    name: Enforce Evidence Grounding on Investigation Reports
+    priority: 30
+    stages: ["llm_output"]
+    description: Ensure final incident report cites only verified evidence collected in session
+    condition:
+      field: scanner_findings.grounding_scanner.status
+      operator: eq
+      value: flag
+    action:
+      decision: DENY
+      severity: high
+      reason: "Investigation report contains ungrounded claims or invalid Evidence IDs"
+      compliance_tags: ["OWASP-LLM09", "NIST-AI-RMF-MEASURE"]

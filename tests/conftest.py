@@ -13,7 +13,7 @@ from gateways.pdp_api.main import app
 def setup_test_environment():
     # Force test configuration
     os.environ["AEGIS_ENV"] = "test"
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_aegisgate.db"
     os.environ["USE_IN_MEMORY_REDIS"] = "true"
     get_settings.cache_clear()
     bootstrap_system()
@@ -25,8 +25,12 @@ async def async_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    except Exception:
+        pass
+    await close_database()
 
 
 @pytest.fixture

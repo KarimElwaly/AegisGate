@@ -1,0 +1,96 @@
+id: agent-fleet-pack
+name: Multi-Agent Fleet Orchestration Policy Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Multi-agent coordination guardrails, delegation depth limits, role matrices, loop circuit breakers, and handoff validation.
+
+scanners:
+  - name: json_schema_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      action_on_violation: block
+      target_field: "output_payload"
+      expected_schema:
+        type: object
+        required: ["agent_id", "status", "summary"]
+        properties:
+          agent_id:
+            type: string
+          status:
+            type: string
+          summary:
+            type: string
+
+budgets:
+  max_tokens: 50000
+  max_cost_usd: 5.00
+  max_tool_calls: 30
+  max_consecutive_failures: 3
+
+rules:
+  - id: fleet-block-excessive-delegation-depth
+    name: Block Excessive Delegation Depth
+    priority: 5
+    description: Enforce maximum delegation depth of 3 across collaborating agents
+    condition:
+      field: actor.delegation_depth
+      operator: gt
+      value: 3
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Maximum delegation depth exceeded (limit: 3). Possible infinite worker recursion or privilege escalation."
+      compliance_tags: ["OWASP-LLM08", "NIST-AI-RMF-GOVERN"]
+
+  - id: fleet-enforce-role-tool-boundary
+    name: Enforce Role-Based Tool Restrictions
+    priority: 12
+    stages: ["tool_pre_call"]
+    description: Prevent non-admin workers from invoking privileged infra or administrative tools
+    condition:
+      all:
+        - field: actor.role
+          operator: eq
+          value: worker
+        - field: action.name
+          operator: in
+          value: ["admin_escalate", "manage_fleet", "terminate_instance", "deploy_code"]
+    action:
+      decision: DENY
+      severity: high
+      reason: "Role 'worker' is forbidden from executing privileged infrastructure tool"
+      compliance_tags: ["OWASP-LLM08", "SOC2-CC6.3"]
+
+  - id: fleet-loop-circuit-breaker
+    name: Loop Circuit Breaker Trip
+    priority: 15
+    stages: ["tool_pre_call"]
+    description: Trip circuit breaker if loop detector detects repetitive actions
+    condition:
+      field: metadata.loop_count
+      operator: gt
+      value: 3
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Runaway loop circuit breaker tripped: 3 or more identical tool calls detected in 60s sliding window"
+      compliance_tags: ["OWASP-LLM04", "NIST-AI-RMF-MANAGE"]
+
+  - id: fleet-handoff-schema-validation
+    name: Enforce Agent Handoff JSON Schema
+    priority: 25
+    stages: ["llm_output"]
+    description: Verify structured payload meets handoff contract requirements
+    condition:
+      field: scanner_findings.json_schema_scanner.status
+      operator: eq
+      value: block
+    action:
+      decision: DENY
+      severity: high
+      reason: "Agent handoff payload failed JSON schema validation"
+      compliance_tags: ["OWASP-LLM02"]

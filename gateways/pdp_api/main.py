@@ -9,11 +9,14 @@ from core.redis_client import close_redis_client
 from gateways.llm_proxy import llm_proxy_router
 from gateways.mcp_tool_gateway import tool_gateway_router
 from gateways.pdp_api.routes import (
+    approvals_router,
+    audit_router,
     evaluate_router,
     health_router,
     kill_switch_router,
     plugins_router,
     policies_router,
+    simulate_router,
 )
 
 
@@ -54,6 +57,9 @@ def create_app() -> FastAPI:
     app.include_router(policies_router)
     app.include_router(plugins_router)
     app.include_router(kill_switch_router)
+    app.include_router(approvals_router)
+    app.include_router(audit_router)
+    app.include_router(simulate_router)
 
     # Integration Gateways
     app.include_router(llm_proxy_router)
