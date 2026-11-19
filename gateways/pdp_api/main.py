@@ -11,6 +11,7 @@ from gateways.mcp_tool_gateway import tool_gateway_router
 from gateways.pdp_api.routes import (
     approvals_router,
     audit_router,
+    auth_router,
     evaluate_router,
     health_router,
     kill_switch_router,
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
 
     # Core PDP & Governance APIs
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(evaluate_router)
     app.include_router(policies_router)
     app.include_router(plugins_router)

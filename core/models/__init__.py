@@ -3,6 +3,7 @@ from core.models.policy import PolicyPackRecord
 from core.models.audit import AuditRecord
 from core.models.approval import ApprovalTicketRecord
 from core.models.shadow import ShadowDeltaRecord
+from core.models.user import UserRecord, ApiKeyRecord
 
 __all__ = [
     "Base",
@@ -10,4 +11,6 @@ __all__ = [
     "AuditRecord",
     "ApprovalTicketRecord",
     "ShadowDeltaRecord",
+    "UserRecord",
+    "ApiKeyRecord",
 ]

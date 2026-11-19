@@ -58,6 +58,23 @@ services:
       timeout: 5s
       retries: 3
 
+  aegisgate-dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dashboard
+    container_name: aegisgate-dashboard
+    restart: unless-stopped
+    depends_on:
+      aegisgate-engine:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
 volumes:
   aegis_pgdata:
   aegis_redisdata:

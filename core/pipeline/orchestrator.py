@@ -449,6 +449,20 @@ class PipelineOrchestrator:
             latency_ms=round(latency_ms, 2),
         )
 
+        # Record Prometheus Telemetry
+        try:
+            from core.telemetry import record_evaluation_metric
+            cur_stage = request.stage.value if hasattr(request.stage, "value") else str(request.stage)
+            cur_dec = effective_decision.value if hasattr(effective_decision, "value") else str(effective_decision)
+            record_evaluation_metric(
+                tenant_id=request.tenant_id,
+                stage=cur_stage,
+                decision=cur_dec,
+                latency_seconds=latency_ms / 1000.0,
+            )
+        except Exception:
+            pass
+
         # Audit Ledger Recording
         if getattr(request, "record_audit", True):
             try:
