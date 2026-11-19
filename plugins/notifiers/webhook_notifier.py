@@ -1,9 +1,11 @@
 import hashlib
 import hmac
 import json
-from typing import Any, Dict, Type
+from typing import Any
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.logger import get_logger
 from core.registry.interfaces import BaseNotifier
 
@@ -21,12 +23,12 @@ class WebhookNotifierConfig(BaseModel):
 class WebhookNotifier(BaseNotifier):
     name: str = "webhook_notifier"
     version: str = "1.0.0"
-    config_schema: Type[BaseModel] = WebhookNotifierConfig
+    config_schema: type[BaseModel] = WebhookNotifierConfig
 
     async def notify(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         config: BaseModel,
     ) -> bool:
         cfg = config if isinstance(config, WebhookNotifierConfig) else WebhookNotifierConfig(**config.model_dump())
@@ -48,3 +50,4 @@ class WebhookNotifier(BaseNotifier):
         except Exception as e:
             logger.warning("webhook_notification_failed", url=cfg.endpoint_url, error=str(e))
             return False
+

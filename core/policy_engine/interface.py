@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any
+
 from core.schemas.common import DecisionEnum
 from core.schemas.events import EvaluationRequest
 from core.schemas.policy import PolicyPackDefinition
@@ -13,10 +14,10 @@ class PolicyEngineInterface(ABC):
     async def evaluate(
         self,
         request: EvaluationRequest,
-        scanner_findings: List[ScannerFinding],
-        resolved_context: Dict[str, Any],
+        scanner_findings: list[ScannerFinding],
+        resolved_context: dict[str, Any],
         policy_pack: PolicyPackDefinition,
-    ) -> Tuple[DecisionEnum, float, List[TriggeredRule], Dict[str, Any]]:
+    ) -> tuple[DecisionEnum, float, list[TriggeredRule], dict[str, Any]]:
         """Evaluates rules against request, findings, and context.
         Returns:
             - decision: ALLOW | DENY | MODIFY | SUSPEND_FOR_APPROVAL | ESCALATE
@@ -24,4 +25,4 @@ class PolicyEngineInterface(ABC):
             - triggered_rules: list of TriggeredRule
             - rule_mutations: dict containing optional mutated_content / mutated_parameters
         """
-        pass
+

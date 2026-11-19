@@ -7,10 +7,10 @@ from core.policy_engine.yaml_engine import (
 )
 
 __all__ = [
+    "OPAEngineConfig",
+    "OPAPolicyEngine",
     "PolicyEngineInterface",
     "YamlPolicyEngine",
     "default_yaml_engine",
     "get_yaml_policy_engine",
-    "OPAPolicyEngine",
-    "OPAEngineConfig",
 ]

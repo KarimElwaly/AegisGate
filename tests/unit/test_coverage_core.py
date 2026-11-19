@@ -1,17 +1,28 @@
-import os
 import pytest
 from pydantic import BaseModel
-from core.config import Settings, get_settings
+
+from core.config import get_settings
 from core.logger import configure_logging
-from core.pii_vault.vault import PiiVault
 from core.pipeline.orchestrator import PipelineOrchestrator
 from core.policy_engine.yaml_engine import YamlPolicyEngine
-from core.registry.interfaces import BaseContextResolver, BaseNotifier, BaseScanner, DefaultPluginConfig, ScannerResult
+from core.registry.interfaces import (
+    BaseContextResolver,
+    BaseNotifier,
+    BaseScanner,
+    DefaultPluginConfig,
+    ScannerResult,
+)
 from core.registry.registry import PluginRegistry
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
-from core.schemas.policy import ConditionExpression, PolicyPackDefinition, PolicyRule, ResolverBinding, RuleAction, ScannerConfig
-from core.schemas.verdicts import ScannerFinding
+from core.schemas.policy import (
+    ConditionExpression,
+    PolicyPackDefinition,
+    PolicyRule,
+    ResolverBinding,
+    RuleAction,
+    ScannerConfig,
+)
 
 
 class DummyResolver(BaseContextResolver):

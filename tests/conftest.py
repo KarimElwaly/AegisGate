@@ -1,11 +1,11 @@
-import asyncio
 import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
 from core.bootstrap import bootstrap_system
 from core.config import get_settings
 from core.database import Base, close_database, get_engine
-from core.redis_client import close_redis_client, get_redis_client
 from gateways.pdp_api.main import app
 
 

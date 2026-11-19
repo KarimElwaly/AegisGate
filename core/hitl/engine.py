@@ -4,16 +4,18 @@ import hashlib
 import hmac
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.database import db_context
+from core.hitl.schemas import ApprovalDecisionRequest, ApprovalTicketResponse
 from core.logger import get_logger
 from core.models.approval import ApprovalTicketRecord
 from core.schemas.events import EvaluationRequest
 from core.schemas.verdicts import EvaluationVerdict
-from core.hitl.schemas import ApprovalDecisionRequest, ApprovalTicketResponse
 
 logger = get_logger("core.hitl.engine")
 
@@ -25,12 +27,12 @@ class HITLEngine:
     parameter overrides, and HMAC-signed webhook callback dispatches.
     """
 
-    def __init__(self, db_session: Optional[AsyncSession] = None):
+    def __init__(self, db_session: AsyncSession | None = None):
         self._db_session = db_session
         # In-memory store fallback for fast testing or when running without DB
-        self._mem_tickets: Dict[str, Dict[str, Any]] = {}
+        self._mem_tickets: dict[str, dict[str, Any]] = {}
 
-    def _to_response(self, data: Dict[str, Any]) -> ApprovalTicketResponse:
+    def _to_response(self, data: dict[str, Any]) -> ApprovalTicketResponse:
         return ApprovalTicketResponse(
             ticket_id=data["ticket_id"],
             tenant_id=data["tenant_id"],
@@ -62,10 +64,10 @@ class HITLEngine:
         verdict: EvaluationVerdict,
         policy_pack_id: str,
         required_approvals: int = 1,
-        required_approver_roles: Optional[List[str]] = None,
+        required_approver_roles: list[str] | None = None,
         ttl_seconds: int = 300,
-        callback_url: Optional[str] = None,
-        callback_secret: Optional[str] = None,
+        callback_url: str | None = None,
+        callback_secret: str | None = None,
     ) -> ApprovalTicketResponse:
         ticket_id = str(uuid.uuid4())
         now = datetime.datetime.utcnow()
@@ -153,7 +155,7 @@ class HITLEngine:
 
         return self._to_response(ticket_data)
 
-    async def get_ticket(self, ticket_id: str) -> Optional[ApprovalTicketResponse]:
+    async def get_ticket(self, ticket_id: str) -> ApprovalTicketResponse | None:
         # Check memory first
         data = self._mem_tickets.get(ticket_id)
         if not data:
@@ -209,9 +211,9 @@ class HITLEngine:
     async def list_tickets(
         self,
         tenant_id: str,
-        status: Optional[str] = None,
-    ) -> List[ApprovalTicketResponse]:
-        results: List[ApprovalTicketResponse] = []
+        status: str | None = None,
+    ) -> list[ApprovalTicketResponse]:
+        results: list[ApprovalTicketResponse] = []
         # Return from memory matching tenant
         for t in self._mem_tickets.values():
             if t["tenant_id"] == tenant_id:
@@ -313,7 +315,7 @@ class HITLEngine:
 
         return self._to_response(data)
 
-    async def _send_callback(self, ticket_data: Dict[str, Any]) -> None:
+    async def _send_callback(self, ticket_data: dict[str, Any]) -> None:
         """Sends signed HMAC POST callback to caller's webhook."""
         url = ticket_data.get("callback_url")
         secret = ticket_data.get("callback_secret") or "aegisgate-default-secret"
@@ -359,7 +361,7 @@ class HITLEngine:
 
 
 # Global singleton instance for easy access across gateways and PDP API
-_global_hitl_engine: Optional[HITLEngine] = None
+_global_hitl_engine: HITLEngine | None = None
 
 
 def get_hitl_engine() -> HITLEngine:

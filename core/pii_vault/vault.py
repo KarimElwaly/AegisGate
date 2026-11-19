@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Optional
+
 from core.config import get_settings
 from core.logger import get_logger
 from core.redis_client import get_redis_client
@@ -14,11 +14,11 @@ class PiiVault:
 
     TOKEN_PATTERN = re.compile(r"<AEGIS_([A-Z0-9_]+)>")
 
-    def __init__(self, ttl_seconds: Optional[int] = None) -> None:
+    def __init__(self, ttl_seconds: int | None = None) -> None:
         self.ttl = ttl_seconds or get_settings().PII_VAULT_TTL_SECONDS
-        self._local_forward: Dict[str, Dict[str, str]] = {}
-        self._local_reverse: Dict[str, Dict[str, str]] = {}
-        self._local_counts: Dict[str, Dict[str, int]] = {}
+        self._local_forward: dict[str, dict[str, str]] = {}
+        self._local_reverse: dict[str, dict[str, str]] = {}
+        self._local_counts: dict[str, dict[str, int]] = {}
 
     def _get_session_key(self, tenant_id: str, session_id: str) -> str:
         prefix = get_settings().REDIS_KEY_PREFIX
@@ -117,7 +117,7 @@ class PiiVault:
         self,
         tenant_id: str,
         session_id: str,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Return dict of token -> original_value for the session."""
         session_key = self._get_session_key(tenant_id, session_id)
         try:
@@ -139,3 +139,4 @@ default_pii_vault = PiiVault()
 
 def get_pii_vault() -> PiiVault:
     return default_pii_vault
+

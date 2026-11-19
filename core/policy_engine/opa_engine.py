@@ -1,6 +1,8 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import httpx
 from pydantic import BaseModel, ConfigDict
+
 from core.logger import get_logger
 from core.policy_engine.interface import PolicyEngineInterface
 from core.schemas.common import DecisionEnum, SeverityEnum
@@ -23,16 +25,16 @@ class OPAEngineConfig(BaseModel):
 class OPAPolicyEngine(PolicyEngineInterface):
     """Enterprise OPA/Rego HTTP Policy Evaluation Adapter."""
 
-    def __init__(self, config: Optional[OPAEngineConfig] = None) -> None:
+    def __init__(self, config: OPAEngineConfig | None = None) -> None:
         self.config = config or OPAEngineConfig()
 
     async def evaluate(
         self,
         request: EvaluationRequest,
-        scanner_findings: List[ScannerFinding],
-        resolved_context: Dict[str, Any],
+        scanner_findings: list[ScannerFinding],
+        resolved_context: dict[str, Any],
         policy_pack: PolicyPackDefinition,
-    ) -> Tuple[DecisionEnum, float, List[TriggeredRule], Dict[str, Any]]:
+    ) -> tuple[DecisionEnum, float, list[TriggeredRule], dict[str, Any]]:
         url = f"{self.config.opa_url.rstrip('/')}/{self.config.policy_path.lstrip('/')}"
         timeout_sec = max(0.02, self.config.timeout_ms / 1000.0)
 
@@ -57,7 +59,7 @@ class OPAPolicyEngine(PolicyEngineInterface):
                     risk_score = float(data.get("risk_score", 0.0))
                     raw_rules = data.get("triggered_rules", [])
 
-                    triggered: List[TriggeredRule] = []
+                    triggered: list[TriggeredRule] = []
                     for r in raw_rules:
                         triggered.append(
                             TriggeredRule(
@@ -94,3 +96,4 @@ class OPAPolicyEngine(PolicyEngineInterface):
                 )
             ]
             return DecisionEnum.DENY, 1.0, triggered, {}
+

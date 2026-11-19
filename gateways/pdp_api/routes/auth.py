@@ -1,8 +1,10 @@
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+
 from core.auth.dependencies import AuthenticatedActor, get_current_actor, require_role
 from core.auth.security import create_access_token, generate_api_key, hash_password, verify_password
 from core.database import db_context
@@ -40,7 +42,7 @@ class CreateApiKeyRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: Dict[str, Any]
+    user: dict[str, Any]
 
 
 class ApiKeyCreatedResponse(BaseModel):
@@ -105,7 +107,7 @@ async def get_me(current_actor: AuthenticatedActor = Depends(get_current_actor))
 
 
 @router.post("/register")
-async def register_user(req: RegisterUserRequest) -> Dict[str, Any]:
+async def register_user(req: RegisterUserRequest) -> dict[str, Any]:
     """Registers a new user in a tenant."""
     async with db_context() as session:
         # Check duplicate
@@ -179,7 +181,7 @@ async def create_api_key(
 async def list_api_keys(
     tenant_id: str = "default",
     actor: AuthenticatedActor = Depends(get_current_actor),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Lists API keys for a tenant (without exposing secrets)."""
     async with db_context() as session:
         stmt = select(ApiKeyRecord).where(ApiKeyRecord.tenant_id == tenant_id)

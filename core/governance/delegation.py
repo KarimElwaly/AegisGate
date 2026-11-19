@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.logger import get_logger
 from core.schemas.events import ActorModel
 
@@ -12,11 +12,11 @@ class DelegationPolicyConfig(BaseModel):
     enabled: bool = True
     max_delegation_depth: int = 3
     # allowed_role_matrix: {delegator_role: [allowed_delegatee_roles]}
-    allowed_role_matrix: Dict[str, List[str]] = Field(default_factory=dict)
+    allowed_role_matrix: dict[str, list[str]] = Field(default_factory=dict)
     # role_tool_permissions: {role: [allowed_tool_names] or "*"}
-    role_tool_permissions: Dict[str, List[str]] = Field(default_factory=dict)
+    role_tool_permissions: dict[str, list[str]] = Field(default_factory=dict)
     # denied_roles: roles that cannot execute actions
-    denied_roles: List[str] = Field(default_factory=list)
+    denied_roles: list[str] = Field(default_factory=list)
 
 
 class DelegationValidator:
@@ -29,7 +29,7 @@ class DelegationValidator:
         actor: ActorModel,
         action_name: str,
         config: DelegationPolicyConfig,
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         if not config.enabled:
             return True, None
 
@@ -86,3 +86,4 @@ default_delegation_validator = DelegationValidator()
 
 def get_delegation_validator() -> DelegationValidator:
     return default_delegation_validator
+

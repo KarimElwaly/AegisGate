@@ -1,8 +1,10 @@
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any
+
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
 from core.config import get_settings
 from core.logger import get_logger
 from core.registry.interfaces import BaseScanner, ScannerResult
@@ -39,7 +41,7 @@ class LLMJudgeScanner(BaseScanner):
         self,
         content: str,
         cfg: LLMJudgeConfig,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         settings = get_settings()
         if settings.AEGIS_ENV == "test":
             # Deterministic test mock
@@ -144,5 +146,6 @@ class LLMJudgeScanner(BaseScanner):
                     status="flag",
                     score=0.5,
                     details={"error": str(e)},
-                    message=f"LLM judge failed: {str(e)}",
+                    message=f"LLM judge failed: {e!s}",
                 )
+

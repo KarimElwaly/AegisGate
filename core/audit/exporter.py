@@ -1,9 +1,10 @@
 import csv
 import io
 import json
-from typing import List, Optional
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.database import db_context
 from core.models.audit import AuditRecord
 
@@ -12,7 +13,7 @@ class ComplianceAuditExporter:
     """Exports audit logs in standard compliance formats (JSONL and CSV) with regulatory tag filtering."""
 
     @staticmethod
-    def _matches_tag(tags_json: str, target_tag: Optional[str]) -> bool:
+    def _matches_tag(tags_json: str, target_tag: str | None) -> bool:
         if not target_tag:
             return True
         try:
@@ -26,10 +27,10 @@ class ComplianceAuditExporter:
         self,
         tenant_id: str,
         export_format: str = "jsonl",
-        compliance_tag: Optional[str] = None,
-        db_session: Optional[AsyncSession] = None,
+        compliance_tag: str | None = None,
+        db_session: AsyncSession | None = None,
     ) -> str:
-        async def _query(session: AsyncSession) -> List[AuditRecord]:
+        async def _query(session: AsyncSession) -> list[AuditRecord]:
             stmt = (
                 select(AuditRecord)
                 .where(AuditRecord.tenant_id == tenant_id)

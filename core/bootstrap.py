@@ -1,11 +1,11 @@
-import os
 from pathlib import Path
+
 from core.logger import get_logger
 from core.policy_engine.yaml_engine import get_yaml_policy_engine
 from core.registry.registry import get_plugin_registry
-from plugins.notifiers.webhook_notifier import WebhookNotifier
-from plugins.notifiers.slack_notifier import SlackNotifier
 from plugins.notifiers.siem_cef_notifier import SiemCefNotifier
+from plugins.notifiers.slack_notifier import SlackNotifier
+from plugins.notifiers.webhook_notifier import WebhookNotifier
 from plugins.resolvers.http_resolver import HTTPContextResolver
 from plugins.resolvers.redis_resolver import RedisStateResolver
 from plugins.resolvers.static_resolver import StaticLookupResolver

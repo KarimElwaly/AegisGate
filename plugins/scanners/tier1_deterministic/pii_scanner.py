@@ -1,7 +1,9 @@
 import hashlib
 import re
-from typing import Any, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.pii_vault.vault import get_pii_vault
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
@@ -18,7 +20,7 @@ class PiiScannerConfig(BaseModel):
     detect_ssn: bool = True
     detect_ipv4: bool = True
     detect_ipv6: bool = False
-    custom_patterns: List[str] = Field(default_factory=list)
+    custom_patterns: list[str] = Field(default_factory=list)
 
 
 class PiiScanner(BaseScanner):
@@ -150,3 +152,4 @@ class PiiScanner(BaseScanner):
             mutated_content=mutated_content_dict if mutated_content_dict else None,
             redaction_map=redactions if redactions else None,
         )
+

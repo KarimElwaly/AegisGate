@@ -1,15 +1,18 @@
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.database import db_context
 from core.logger import get_logger
 from core.models.audit import AuditRecord
-from core.policy_engine.yaml_engine import YamlPolicyEngine, get_yaml_policy_engine
-from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
+from core.policy_engine.yaml_engine import get_yaml_policy_engine
+from core.schemas.events import ActionModel, ActorModel, EvaluationRequest
 from core.schemas.policy import PolicyPackDefinition
+from core.schemas.verdicts import ScannerFinding
 
 logger = get_logger("core.simulator.replay")
 
@@ -18,8 +21,8 @@ class ReplaySimulationRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     tenant_id: str = "default"
-    candidate_pack_yaml: Optional[str] = None
-    candidate_pack_id: Optional[str] = None
+    candidate_pack_yaml: str | None = None
+    candidate_pack_id: str | None = None
     max_events: int = Field(default=100, ge=1, le=1000)
 
 
@@ -32,8 +35,8 @@ class ReplayDiffReport(BaseModel):
     concordance_rate: float = 1.0
     new_blocks_count: int = 0
     new_allows_count: int = 0
-    new_blocks: List[Dict[str, Any]] = Field(default_factory=list)
-    new_allows: List[Dict[str, Any]] = Field(default_factory=list)
+    new_blocks: list[dict[str, Any]] = Field(default_factory=list)
+    new_allows: list[dict[str, Any]] = Field(default_factory=list)
     avg_replayed_latency_ms: float = 0.0
 
 
@@ -50,10 +53,10 @@ class PolicyReplaySimulator:
     async def run_replay(
         self,
         request: ReplaySimulationRequest,
-        db_session: Optional[AsyncSession] = None,
+        db_session: AsyncSession | None = None,
     ) -> ReplayDiffReport:
         # 1. Parse or fetch candidate policy pack
-        candidate_pack: Optional[PolicyPackDefinition] = None
+        candidate_pack: PolicyPackDefinition | None = None
         if request.candidate_pack_yaml:
             candidate_pack = self.yaml_engine.load_pack_from_yaml(request.candidate_pack_yaml)
         elif request.candidate_pack_id:
@@ -64,7 +67,7 @@ class PolicyReplaySimulator:
             raise ValueError("Candidate policy pack could not be resolved from YAML or pack_id.")
 
         # 2. Fetch historical audit logs
-        records: List[AuditRecord] = []
+        records: list[AuditRecord] = []
         async def _fetch(s: AsyncSession):
             stmt = (
                 select(AuditRecord)
@@ -97,15 +100,19 @@ class PolicyReplaySimulator:
         # 3. Replay each record against candidate policy pack
         total = len(records)
         concordant = 0
-        new_blocks: List[Dict[str, Any]] = []
-        new_allows: List[Dict[str, Any]] = []
-        latencies: List[float] = []
+        new_blocks: list[dict[str, Any]] = []
+        new_allows: list[dict[str, Any]] = []
+        latencies: list[float] = []
 
         for rec in records:
             actor_dict = json.loads(rec.actor_json or "{}")
             action_dict = json.loads(rec.action_json or "{}")
             resolved_ctx = json.loads(rec.resolved_context_json or "{}")
-            scanner_findings = json.loads(rec.scanner_findings_json or "[]")
+            raw_findings = json.loads(rec.scanner_findings_json or "[]")
+            scanner_findings = [
+                ScannerFinding(**sf) if isinstance(sf, dict) else sf
+                for sf in raw_findings
+            ]
 
             eval_req = EvaluationRequest(
                 trace_id=rec.trace_id,
@@ -164,7 +171,7 @@ class PolicyReplaySimulator:
         )
 
 
-_global_replay_simulator: Optional[PolicyReplaySimulator] = None
+_global_replay_simulator: PolicyReplaySimulator | None = None
 
 
 def get_replay_simulator() -> PolicyReplaySimulator:

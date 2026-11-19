@@ -1,11 +1,13 @@
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import yaml
+
 from core.logger import get_logger
 from core.policy_engine.interface import PolicyEngineInterface
 from core.schemas.common import DecisionEnum, SeverityEnum
 from core.schemas.events import EvaluationRequest
-from core.schemas.policy import ConditionExpression, PolicyPackDefinition, PolicyRule
+from core.schemas.policy import ConditionExpression, PolicyPackDefinition
 from core.schemas.verdicts import ScannerFinding, TriggeredRule
 
 logger = get_logger("core.policy_engine.yaml")
@@ -15,7 +17,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
     """Native YAML DSL Policy Engine with boolean logic, inheritance, and hot-reload."""
 
     def __init__(self) -> None:
-        self._policy_packs: Dict[str, PolicyPackDefinition] = {}
+        self._policy_packs: dict[str, PolicyPackDefinition] = {}
 
     def register_policy_pack(self, pack: PolicyPackDefinition) -> None:
         self._policy_packs[pack.id] = pack
@@ -27,7 +29,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
         self.register_policy_pack(pack)
         return pack
 
-    def get_policy_pack(self, pack_id: str) -> Optional[PolicyPackDefinition]:
+    def get_policy_pack(self, pack_id: str) -> PolicyPackDefinition | None:
         return self._policy_packs.get(pack_id)
 
     get_registered_pack = get_policy_pack
@@ -80,7 +82,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
             rules=merged_rules,
         )
 
-    def _extract_field(self, field_path: str, context_bundle: Dict[str, Any]) -> Any:
+    def _extract_field(self, field_path: str, context_bundle: dict[str, Any]) -> Any:
         parts = field_path.split(".")
         current = context_bundle
         for part in parts:
@@ -94,7 +96,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
                 return None
         return current
 
-    def _evaluate_clause(self, clause: ConditionExpression, context_bundle: Dict[str, Any]) -> bool:
+    def _evaluate_clause(self, clause: ConditionExpression, context_bundle: dict[str, Any]) -> bool:
         if clause.all is not None:
             return all(self._evaluate_clause(sub, context_bundle) for sub in clause.all)
 
@@ -165,24 +167,34 @@ class YamlPolicyEngine(PolicyEngineInterface):
     async def evaluate(
         self,
         request: EvaluationRequest,
-        scanner_findings: List[ScannerFinding],
-        resolved_context: Dict[str, Any],
+        scanner_findings: list[ScannerFinding],
+        resolved_context: dict[str, Any],
         policy_pack: PolicyPackDefinition,
-    ) -> Tuple[DecisionEnum, float, List[TriggeredRule], Dict[str, Any]]:
+    ) -> tuple[DecisionEnum, float, list[TriggeredRule], dict[str, Any]]:
         resolved_pack = self.resolve_inheritance(policy_pack)
 
         # Build context bundle for expression evaluation
-        findings_map: Dict[str, Any] = {}
-        findings_status_map: Dict[str, str] = {}
+        findings_map: dict[str, Any] = {}
+        findings_status_map: dict[str, str] = {}
         for f in scanner_findings:
-            dumped = f.model_dump()
-            findings_map[f.scanner_name] = dumped
-            findings_status_map[f.scanner_name] = f.status
+            if hasattr(f, "model_dump"):
+                dumped = f.model_dump()
+                f_name = f.scanner_name
+                f_status = f.status
+            elif isinstance(f, dict):
+                dumped = f
+                f_name = f.get("scanner_name", "")
+                f_status = f.get("status", "")
+            else:
+                continue
+
+            findings_map[f_name] = dumped
+            findings_status_map[f_name] = f_status
             for pfx in ("tier1_", "tier2_", "tier3_"):
-                if f.scanner_name.startswith(pfx):
-                    short_name = f.scanner_name[len(pfx):]
+                if f_name.startswith(pfx):
+                    short_name = f_name[len(pfx):]
                     findings_map[short_name] = dumped
-                    findings_status_map[short_name] = f.status
+                    findings_status_map[short_name] = f_status
 
         current_stage = request.stage.value if hasattr(request.stage, "value") else str(request.stage)
 
@@ -200,8 +212,8 @@ class YamlPolicyEngine(PolicyEngineInterface):
             "scanner_status": findings_status_map,
         }
 
-        triggered_rules: List[TriggeredRule] = []
-        rule_mutations: Dict[str, Any] = {}
+        triggered_rules: list[TriggeredRule] = []
+        rule_mutations: dict[str, Any] = {}
         highest_decision: DecisionEnum = DecisionEnum.ALLOW
         max_risk: float = 0.0
 
@@ -236,8 +248,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
                 rule_severity = SeverityEnum(act.severity) if isinstance(act.severity, str) else act.severity
                 risk = severity_risk.get(rule_severity, 0.5)
 
-                if risk > max_risk:
-                    max_risk = risk
+                max_risk = max(max_risk, risk)
 
                 triggered_rules.append(
                     TriggeredRule(

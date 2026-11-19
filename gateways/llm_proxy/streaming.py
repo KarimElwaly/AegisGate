@@ -1,6 +1,7 @@
 import json
 import re
-from typing import AsyncGenerator, Dict, Optional
+from collections.abc import AsyncGenerator
+
 from core.logger import get_logger
 from core.pii_vault.vault import get_pii_vault
 
@@ -74,7 +75,7 @@ class SSEStreamGuard:
                                         }
                                     ]
                                 }
-                                yield f"data: {json.dumps(abort_chunk)}\n\ndata: [DONE]\n\n".encode("utf-8")
+                                yield f"data: {json.dumps(abort_chunk)}\n\ndata: [DONE]\n\n".encode()
                                 return
 
                             # Rehydrate PII tokens if present
@@ -92,3 +93,4 @@ class SSEStreamGuard:
                     yield line.encode("utf-8")
                 except json.JSONDecodeError:
                     yield line.encode("utf-8")
+

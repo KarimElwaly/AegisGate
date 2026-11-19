@@ -1,8 +1,6 @@
 import pytest
-from core.governance.budgets import get_budget_manager
-from core.governance.delegation import DelegationPolicyConfig, get_delegation_validator
+
 from core.governance.kill_switch import get_kill_switch_service
-from core.governance.loop_detector import get_loop_detector
 from core.pipeline.orchestrator import PipelineOrchestrator
 from core.policy_engine.opa_engine import OPAEngineConfig, OPAPolicyEngine
 from core.schemas.common import DecisionEnum, StageEnum
@@ -273,3 +271,4 @@ async def test_opa_rego_adapter_fallback():
     decision_open, risk_open, triggered_open, _ = await opa_open.evaluate(req, [], {}, PolicyPackDefinition(id="p", name="p"))
     assert decision_open == DecisionEnum.ALLOW
     assert risk_open == 0.0
+

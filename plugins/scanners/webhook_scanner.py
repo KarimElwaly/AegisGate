@@ -2,9 +2,11 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 
@@ -17,7 +19,7 @@ class WebhookScannerConfig(BaseModel):
     secret_key: str = "default-webhook-secret"
     timeout_ms: int = 500
     on_timeout: str = "flag"  # "allow" | "deny" | "flag"
-    custom_headers: Dict[str, str] = Field(default_factory=dict)
+    custom_headers: dict[str, str] = Field(default_factory=dict)
 
 
 class WebhookScanner(BaseScanner):
@@ -103,5 +105,5 @@ class WebhookScanner(BaseScanner):
                 status=fallback_status,
                 score=0.5 if fallback_status != "pass" else 0.0,
                 details={"error": str(e), "on_timeout": cfg.on_timeout},
-                message=f"Webhook scanner timeout/error: {str(e)} (fallback: {fallback_status})",
+                message=f"Webhook scanner timeout/error: {e!s} (fallback: {fallback_status})",
             )

@@ -48,3 +48,4 @@ class ScannerStatusEnum(str, Enum):
     FLAG = "flag"
     BLOCK = "block"
     ERROR = "error"
+

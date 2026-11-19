@@ -1,8 +1,10 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from typing import Any
+
 import httpx
+from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi.responses import StreamingResponse
+
 from core.config import get_settings
 from core.logger import get_logger
 from core.pii_vault.vault import get_pii_vault
@@ -15,7 +17,7 @@ logger = get_logger("gateways.llm_proxy")
 router = APIRouter(prefix="/proxy/llm/v1", tags=["OpenAI LLM Reverse Proxy"])
 
 
-def _extract_messages_text(messages: List[Dict[str, Any]]) -> Tuple[str, str]:
+def _extract_messages_text(messages: list[dict[str, Any]]) -> tuple[str, str]:
     trusted = []
     untrusted = []
     for msg in messages:
@@ -35,7 +37,7 @@ def _extract_messages_text(messages: List[Dict[str, Any]]) -> Tuple[str, str]:
 
 
 @router.get("/models")
-async def list_models() -> Dict[str, Any]:
+async def list_models() -> dict[str, Any]:
     """OpenAI-compatible models endpoint."""
     return {
         "object": "list",
@@ -60,14 +62,14 @@ async def list_models() -> Dict[str, Any]:
 async def chat_completions(
     request: Request,
     orchestrator: PipelineOrchestrator = Depends(get_pipeline_orchestrator),
-    authorization: Optional[str] = Header(default=None),
+    authorization: str | None = Header(default=None),
     x_aegis_tenant_id: str = Header(default="default"),
     x_aegis_workspace_id: str = Header(default="default"),
     x_aegis_policy_pack: str = Header(default="base-enterprise"),
-    x_aegis_session_id: Optional[str] = Header(default=None),
+    x_aegis_session_id: str | None = Header(default=None),
     x_aegis_actor_id: str = Header(default="llm_client"),
     x_aegis_actor_role: str = Header(default="user"),
-    x_aegis_upstream_url: Optional[str] = Header(default=None),
+    x_aegis_upstream_url: str | None = Header(default=None),
 ):
     """OpenAI-compatible Chat Completions Reverse Proxy.
     Enforces llm_input guardrails before forwarding, and llm_output guardrails

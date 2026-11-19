@@ -159,3 +159,4 @@ export const PluginRegistryView: React.FC<PluginRegistryViewProps> = ({ plugins 
     </div>
   );
 };
+

@@ -113,3 +113,4 @@ export class AegisClient {
     throw new Error(`Approval ticket ${ticketId} timed out after ${maxWaitMs}ms`);
   }
 }
+

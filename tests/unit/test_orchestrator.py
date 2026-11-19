@@ -1,7 +1,8 @@
 import pytest
+
 from core.pipeline.orchestrator import PipelineOrchestrator
 from core.schemas.common import DecisionEnum, EffectiveModeEnum
-from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
+from core.schemas.events import ContentModel, EvaluationRequest
 
 
 @pytest.mark.asyncio
@@ -52,3 +53,4 @@ async def test_orchestrator_shadow_mode():
     assert verdict.effective_mode == EffectiveModeEnum.SHADOW
     assert verdict.would_have_decided == DecisionEnum.DENY
     assert len(verdict.triggered_rules) > 0
+

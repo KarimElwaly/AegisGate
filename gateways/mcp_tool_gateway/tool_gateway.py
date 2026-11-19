@@ -1,7 +1,9 @@
 import json
-from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from typing import Any
+
 import httpx
+from fastapi import APIRouter, Depends, Header, Request, Response
+
 from core.logger import get_logger
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from core.schemas.common import DecisionEnum, StageEnum
@@ -19,10 +21,10 @@ async def execute_tool_proxy(
     x_aegis_tenant_id: str = Header(default="default"),
     x_aegis_workspace_id: str = Header(default="default"),
     x_aegis_policy_pack: str = Header(default="base-enterprise"),
-    x_aegis_session_id: Optional[str] = Header(default=None),
+    x_aegis_session_id: str | None = Header(default=None),
     x_aegis_actor_id: str = Header(default="tool_caller"),
     x_aegis_actor_role: str = Header(default="worker"),
-    x_aegis_upstream_url: Optional[str] = Header(default=None),
+    x_aegis_upstream_url: str | None = Header(default=None),
 ):
     """HTTP Tool Proxy.
     Enforces tool_pre_call governance (kill switch, loop detector, budgets, parameter guards)
@@ -150,7 +152,7 @@ async def mcp_jsonrpc_gateway(
     x_aegis_tenant_id: str = Header(default="default"),
     x_aegis_workspace_id: str = Header(default="default"),
     x_aegis_policy_pack: str = Header(default="base-enterprise"),
-    x_aegis_session_id: Optional[str] = Header(default=None),
+    x_aegis_session_id: str | None = Header(default=None),
     x_aegis_actor_id: str = Header(default="mcp_client"),
     x_aegis_actor_role: str = Header(default="agent"),
 ):
@@ -229,3 +231,4 @@ async def mcp_jsonrpc_gateway(
         "id": msg_id,
         "error": {"code": -32601, "message": f"Method '{method}' not found"},
     }
+

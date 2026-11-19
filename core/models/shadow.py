@@ -1,6 +1,8 @@
 import datetime
+
 from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+
 from core.database import Base
 
 
@@ -27,3 +29,4 @@ class ShadowDeltaRecord(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.datetime.utcnow, index=True
     )
+

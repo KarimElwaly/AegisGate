@@ -1,7 +1,9 @@
 import json
 import re
-from typing import Any, Dict
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.logger import get_logger
 from core.redis_client import get_redis_client
 from core.registry.interfaces import BaseContextResolver
@@ -17,7 +19,7 @@ class RedisStateResolverConfig(BaseModel):
     key_template: str = "aegisgate:state:{actor_id}"
     data_type: str = "json"  # "string" | "hash" | "json"
     output_key: str = "redis_state"
-    fallback_response: Dict[str, Any] = Field(default_factory=dict)
+    fallback_response: dict[str, Any] = Field(default_factory=dict)
 
 
 class RedisStateResolver(BaseContextResolver):
@@ -46,7 +48,7 @@ class RedisStateResolver(BaseContextResolver):
         self,
         request: EvaluationRequest,
         config: BaseModel,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         cfg = config if isinstance(config, RedisStateResolverConfig) else RedisStateResolverConfig(**config.model_dump())
         if not cfg.enabled:
             return {}
@@ -72,3 +74,4 @@ class RedisStateResolver(BaseContextResolver):
             logger.warning("RedisStateResolver error", key=key, error=str(e))
 
         return dict(cfg.fallback_response)
+

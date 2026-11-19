@@ -1,5 +1,5 @@
-import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -9,11 +9,11 @@ class ApprovalDecisionRequest(BaseModel):
     approver_id: str = Field(..., description="Unique ID of the human approver")
     approver_role: str = Field(..., description="Role of the human approver (e.g. security_lead, admin)")
     decision: str = Field(..., description="'approve' or 'reject'")
-    parameter_override: Optional[Dict[str, Any]] = Field(
+    parameter_override: dict[str, Any] | None = Field(
         default=None,
         description="Optional sanitized/modified parameters replacing original action parameters",
     )
-    decision_notes: Optional[str] = Field(default="", description="Optional justification or notes")
+    decision_notes: str | None = Field(default="", description="Optional justification or notes")
 
 
 class ApprovalTicketResponse(BaseModel):
@@ -23,21 +23,22 @@ class ApprovalTicketResponse(BaseModel):
     tenant_id: str
     workspace_id: str
     trace_id: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
     policy_pack_id: str
     status: str  # pending | approved | rejected | expired
     risk_score: float
     action_name: str
-    original_parameters: Dict[str, Any]
-    modified_parameters: Optional[Dict[str, Any]] = None
-    triggered_rules: List[Dict[str, Any]]
-    resolved_context: Dict[str, Any]
+    original_parameters: dict[str, Any]
+    modified_parameters: dict[str, Any] | None = None
+    triggered_rules: list[dict[str, Any]]
+    resolved_context: dict[str, Any]
     required_approvals: int
-    required_approver_roles: List[str]
-    approved_by: List[str]
-    rejected_by: Optional[str] = None
-    decision_notes: Optional[str] = None
-    callback_url: Optional[str] = None
+    required_approver_roles: list[str]
+    approved_by: list[str]
+    rejected_by: str | None = None
+    decision_notes: str | None = None
+    callback_url: str | None = None
     expires_at: str
     created_at: str
     updated_at: str
+

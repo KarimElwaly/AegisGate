@@ -1,7 +1,9 @@
 import math
 import re
-from typing import Any, List
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 

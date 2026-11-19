@@ -1,9 +1,10 @@
 import pytest
+
+from core.schemas.events import ContentModel, EvaluationRequest
 from plugins.scanners.tier2_local_ml.onnx_classifier import (
     ONNXClassifierConfig,
     ONNXInjectionClassifier,
 )
-from core.schemas.events import ContentModel, EvaluationRequest
 
 # 40+ Indirect Prompt Injections hidden inside raw server logs, tool outputs, and telemetry
 INJECTION_ATTACK_CORPUS = [
@@ -145,15 +146,15 @@ async def test_redteam_indirect_prompt_injection_benchmark():
 
     false_positive_rate = (false_positives / total_benign) * 100.0
 
-    print(f"\n================ RED-TEAM BENCHMARK RESULTS ================")
+    print("\n================ RED-TEAM BENCHMARK RESULTS ================")
     print(f"Total Injection Attacks Tested: {total_injections}")
     print(f"Detected Injections: {detected_injections} ({detection_rate:.1f}%)")
-    print(f"Target Detection Rate: >= 95.0%")
-    print(f"-----------------------------------------------------------")
+    print("Target Detection Rate: >= 95.0%")
+    print("-----------------------------------------------------------")
     print(f"Total Benign Security Logs Tested: {total_benign}")
     print(f"False Positives Triggered: {false_positives} ({false_positive_rate:.2f}%)")
-    print(f"Target False Positive Rate: < 2.0%")
-    print(f"===========================================================\n")
+    print("Target False Positive Rate: < 2.0%")
+    print("===========================================================\n")
 
     # STRICT DoD ASSERTIONS
     assert detection_rate >= 95.0, (
@@ -162,3 +163,4 @@ async def test_redteam_indirect_prompt_injection_benchmark():
     assert false_positive_rate < 2.0, (
         f"False positive rate {false_positive_rate:.2f}% exceeded allowed 2.0% threshold"
     )
+

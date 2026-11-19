@@ -1,7 +1,7 @@
 from core.registry.interfaces import (
-    BaseScanner,
     BaseContextResolver,
     BaseNotifier,
+    BaseScanner,
     ScannerResult,
 )
 from core.registry.registry import (
@@ -11,11 +11,12 @@ from core.registry.registry import (
 )
 
 __all__ = [
-    "BaseScanner",
     "BaseContextResolver",
     "BaseNotifier",
-    "ScannerResult",
+    "BaseScanner",
     "PluginRegistry",
+    "ScannerResult",
     "default_plugin_registry",
     "get_plugin_registry",
 ]
+

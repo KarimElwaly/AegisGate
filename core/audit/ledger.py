@@ -1,11 +1,14 @@
+import asyncio
 import datetime
 import hashlib
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.database import db_context
 from core.logger import get_logger
 from core.models.audit import AuditRecord
@@ -25,13 +28,13 @@ def get_monotonic_utc() -> datetime.datetime:
     if t <= _last_timestamp:
         t = _last_timestamp + 0.001
     _last_timestamp = t
-    return datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc)
+    return datetime.datetime.fromtimestamp(t, tz=datetime.UTC)
 
 
 def format_iso_utc(dt: datetime.datetime) -> str:
     """Produces normalized naive UTC ISO format for deterministic canonical hashing."""
     if dt.tzinfo is not None:
-        dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        dt = dt.astimezone(datetime.UTC).replace(tzinfo=None)
     return dt.isoformat()
 
 
@@ -51,7 +54,7 @@ class AuditLedger:
       record_hash = SHA256(prev_hash || canonical_json(record_payload))
     """
 
-    def __init__(self, session: Optional[AsyncSession] = None):
+    def __init__(self, session: AsyncSession | None = None):
         self._session = session
 
     async def get_latest_hash(self, tenant_id: str, session: AsyncSession) -> str:
@@ -73,9 +76,9 @@ class AuditLedger:
         policy_pack_id: str,
         policy_pack_version: str = "1.0.0",
         effective_mode: str = "enforce",
-        would_have_decided: Optional[str] = None,
-        compliance_tags: Optional[List[str]] = None,
-        db_session: Optional[AsyncSession] = None,
+        would_have_decided: str | None = None,
+        compliance_tags: list[str] | None = None,
+        db_session: AsyncSession | None = None,
     ) -> AuditRecord:
         """Records an evaluation event into the append-only hash-chained ledger."""
         record_id = str(uuid.uuid4())
@@ -166,5 +169,12 @@ class AuditLedger:
         if db_session:
             return await _persist(db_session)
         else:
-            async with db_context() as session:
-                return await _persist(session)
+            try:
+                async with db_context() as session:
+                    return await _persist(session)
+            except (GeneratorExit, asyncio.CancelledError, Exception) as exc:
+                if isinstance(exc, (GeneratorExit, asyncio.CancelledError)):
+                    logger.debug("audit_record_cancelled_on_shutdown")
+                    return None
+                logger.error("audit_record_persist_error", error=str(exc))
+                return None

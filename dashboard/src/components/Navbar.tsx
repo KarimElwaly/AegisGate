@@ -55,3 +55,4 @@ export const Navbar: React.FC<NavbarProps> = ({ tenantId, setTenantId, operatorR
     </header>
   );
 };
+

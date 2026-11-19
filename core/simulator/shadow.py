@@ -1,9 +1,10 @@
 import datetime
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.database import db_context
 from core.logger import get_logger
 from core.models.shadow import ShadowDeltaRecord
@@ -15,7 +16,7 @@ logger = get_logger("core.simulator.shadow")
 class ShadowDeltaItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    id: Optional[int] = None
+    id: int | None = None
     tenant_id: str
     workspace_id: str
     trace_id: str
@@ -25,9 +26,9 @@ class ShadowDeltaItem(BaseModel):
     shadow_version: str
     active_decision: str
     shadow_decision: str
-    active_reasons: List[str] = Field(default_factory=list)
-    shadow_reasons: List[str] = Field(default_factory=list)
-    request_summary: Dict[str, Any] = Field(default_factory=dict)
+    active_reasons: list[str] = Field(default_factory=list)
+    shadow_reasons: list[str] = Field(default_factory=list)
+    request_summary: dict[str, Any] = Field(default_factory=dict)
     created_at: str
 
 
@@ -35,7 +36,7 @@ class ShadowDeltaManager:
     """Records and queries decision deltas between active and shadow policy packs."""
 
     def __init__(self):
-        self._mem_deltas: List[Dict[str, Any]] = []
+        self._mem_deltas: list[dict[str, Any]] = []
 
     async def record_delta(
         self,
@@ -48,7 +49,7 @@ class ShadowDeltaManager:
         shadow_version: str,
         active_verdict: EvaluationVerdict,
         shadow_verdict: EvaluationVerdict,
-        request_summary: Optional[Dict[str, Any]] = None,
+        request_summary: dict[str, Any] | None = None,
     ) -> ShadowDeltaItem:
         active_decision = active_verdict.decision.value if hasattr(active_verdict.decision, "value") else str(active_verdict.decision)
         shadow_decision = shadow_verdict.decision.value if hasattr(shadow_verdict.decision, "value") else str(shadow_verdict.decision)
@@ -110,7 +111,7 @@ class ShadowDeltaManager:
         self,
         tenant_id: str,
         limit: int = 50,
-    ) -> List[ShadowDeltaItem]:
+    ) -> list[ShadowDeltaItem]:
         # Return from memory or DB
         matching = [
             ShadowDeltaItem(**d) for d in self._mem_deltas if d["tenant_id"] == tenant_id
@@ -151,7 +152,7 @@ class ShadowDeltaManager:
             return []
 
 
-_global_shadow_delta_mgr: Optional[ShadowDeltaManager] = None
+_global_shadow_delta_mgr: ShadowDeltaManager | None = None
 
 
 def get_shadow_delta_manager() -> ShadowDeltaManager:

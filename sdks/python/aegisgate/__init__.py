@@ -16,12 +16,13 @@ from sdks.python.aegisgate.exceptions import (
 
 __all__ = [
     "AegisClient",
-    "governed_tool",
-    "governed_llm",
+    "AegisGateError",
+    "BudgetExceededError",
+    "KillSwitchActiveError",
+    "PolicyViolationError",
     "current_session_id",
     "current_trace_id",
-    "AegisGateError",
-    "PolicyViolationError",
-    "KillSwitchActiveError",
-    "BudgetExceededError",
+    "governed_llm",
+    "governed_tool",
 ]
+

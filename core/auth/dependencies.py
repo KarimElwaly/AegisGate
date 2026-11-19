@@ -1,12 +1,14 @@
 import hashlib
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
+
 from core.auth.security import decode_access_token
 from core.database import db_context
-from core.models.user import ApiKeyRecord, UserRecord
+from core.models.user import ApiKeyRecord
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -22,8 +24,8 @@ class AuthenticatedActor(BaseModel):
 
 
 async def get_current_actor(
-    auth_header: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    x_api_key: Optional[str] = Header(default=None, alias="X-Aegis-Api-Key"),
+    auth_header: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    x_api_key: str | None = Header(default=None, alias="X-Aegis-Api-Key"),
 ) -> AuthenticatedActor:
     """
     Extracts and authenticates caller identity via JWT Bearer token or scoped API key.
@@ -71,7 +73,7 @@ async def get_current_actor(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Could not validate credentials: {str(e)}",
+                detail=f"Could not validate credentials: {e!s}",
             )
 
     raise HTTPException(
@@ -93,3 +95,4 @@ def require_role(*allowed_roles: str) -> Callable:
             )
         return actor
     return _checker
+

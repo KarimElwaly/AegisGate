@@ -1,6 +1,5 @@
 class AegisGateError(Exception):
     """Base exception for all AegisGate client errors."""
-    pass
 
 
 class PolicyViolationError(AegisGateError):
@@ -15,3 +14,4 @@ class KillSwitchActiveError(PolicyViolationError):
 
 class BudgetExceededError(PolicyViolationError):
     pass
+

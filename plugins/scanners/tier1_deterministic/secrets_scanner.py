@@ -1,6 +1,8 @@
 import re
-from typing import Any, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 
@@ -14,7 +16,7 @@ class SecretsScannerConfig(BaseModel):
     detect_aws_keys: bool = True
     detect_private_keys: bool = True
     detect_generic_api_keys: bool = True
-    custom_patterns: List[str] = Field(default_factory=list)
+    custom_patterns: list[str] = Field(default_factory=list)
 
 
 class SecretsScanner(BaseScanner):
@@ -122,3 +124,4 @@ class SecretsScanner(BaseScanner):
             message=f"Detected {len(matches_found)} potential secret(s)",
             mutated_content=mutated_text_map if mutated_text_map else None,
         )
+

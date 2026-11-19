@@ -1,7 +1,8 @@
 import hashlib
 import json
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 from core.config import get_settings
 from core.logger import get_logger
 from core.redis_client import get_redis_client
@@ -50,10 +51,10 @@ class LoopDetector:
     """
 
     def __init__(self) -> None:
-        self._local_history: Dict[str, list] = {}
+        self._local_history: dict[str, list] = {}
 
     @staticmethod
-    def compute_call_hash(actor_id: str, action_name: str, parameters: Dict[str, Any]) -> str:
+    def compute_call_hash(actor_id: str, action_name: str, parameters: dict[str, Any]) -> str:
         canonical_params = json.dumps(parameters or {}, sort_keys=True, default=str)
         raw = f"{actor_id}:{action_name}:{canonical_params}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -64,10 +65,10 @@ class LoopDetector:
         session_id: str,
         actor_id: str,
         action_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         threshold: int = 3,
         window_seconds: int = 60,
-    ) -> Tuple[bool, int, str]:
+    ) -> tuple[bool, int, str]:
         """Returns: (is_tripped, count, call_hash)"""
         call_hash = self.compute_call_hash(actor_id, action_name, parameters)
         prefix = get_settings().REDIS_KEY_PREFIX
@@ -134,3 +135,4 @@ default_loop_detector = LoopDetector()
 
 def get_loop_detector() -> LoopDetector:
     return default_loop_detector
+

@@ -1,6 +1,7 @@
+import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
-from sqlalchemy.pool import NullPool, StaticPool
+
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool, StaticPool
+
 from core.config import get_settings
 from core.logger import get_logger
 
@@ -20,11 +23,23 @@ class Base(DeclarativeBase):
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+_engine_loop: asyncio.AbstractEventLoop | None = None
 
 
 def get_engine() -> AsyncEngine:
-    global _engine
+    global _engine, _engine_loop
+    current_loop = None
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+    if _engine is not None and current_loop is not None and _engine_loop is not None and _engine_loop is not current_loop:
+        _engine = None
+        _sessionmaker = None
+
     if _engine is None:
+        _engine_loop = current_loop
         settings = get_settings()
         connect_args = {}
         engine_kwargs = {
@@ -48,6 +63,15 @@ def get_engine() -> AsyncEngine:
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     global _sessionmaker
+    current_loop = None
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
+    if _sessionmaker is not None and current_loop is not None and _engine_loop is not None and _engine_loop is not current_loop:
+        _sessionmaker = None
+
     if _sessionmaker is None:
         engine = get_engine()
         _sessionmaker = async_sessionmaker(
@@ -66,7 +90,7 @@ async def db_context() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
-        except Exception:
+        except BaseException:
             await session.rollback()
             raise
 
@@ -78,7 +102,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         try:
             yield session
             await session.commit()
-        except Exception:
+        except BaseException:
             await session.rollback()
             raise
         finally:
@@ -86,8 +110,12 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def close_database() -> None:
-    global _engine, _sessionmaker
+    global _engine, _sessionmaker, _engine_loop
     if _engine is not None:
-        await _engine.dispose()
+        try:
+            await _engine.dispose()
+        except Exception:
+            pass
         _engine = None
         _sessionmaker = None
+        _engine_loop = None

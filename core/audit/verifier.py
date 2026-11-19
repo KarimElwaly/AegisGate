@@ -1,8 +1,9 @@
 import json
-from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.audit.ledger import GENESIS_HASH, canonical_json, compute_sha256, format_iso_utc
 from core.database import db_context
 from core.logger import get_logger
@@ -14,7 +15,7 @@ logger = get_logger("core.audit.verifier")
 class AuditVerificationResult(BaseModel):
     is_valid: bool = Field(..., description="True if cryptographic hash chain is continuous and uncorrupted")
     total_records: int = Field(default=0, description="Total audit records verified")
-    tampered_records: List[str] = Field(default_factory=list, description="IDs of records failing cryptographic proof")
+    tampered_records: list[str] = Field(default_factory=list, description="IDs of records failing cryptographic proof")
     message: str = Field(default="", description="Detailed verification status message")
 
 
@@ -57,7 +58,7 @@ class AuditVerifier:
     async def verify_tenant_chain(
         self,
         tenant_id: str,
-        db_session: Optional[AsyncSession] = None,
+        db_session: AsyncSession | None = None,
     ) -> AuditVerificationResult:
         """
         Sequentially validates all records for tenant_id:
@@ -81,8 +82,8 @@ class AuditVerifier:
                     message="No audit records found for tenant (empty ledger is valid).",
                 )
 
-            tampered_ids: List[str] = []
-            by_prev: Dict[str, AuditRecord] = {}
+            tampered_ids: list[str] = []
+            by_prev: dict[str, AuditRecord] = {}
             for r in records:
                 if r.prev_hash in by_prev:
                     tampered_ids.append(r.id)
@@ -99,7 +100,7 @@ class AuditVerifier:
                 )
 
             # Reconstruct topological chain starting from GENESIS_HASH
-            ordered_chain: List[AuditRecord] = []
+            ordered_chain: list[AuditRecord] = []
             curr_hash = GENESIS_HASH
             while curr_hash in by_prev:
                 curr_rec = by_prev[curr_hash]
@@ -112,7 +113,7 @@ class AuditVerifier:
                     is_valid=False,
                     total_records=len(records),
                     tampered_records=missing_records,
-                    message=f"Audit chain verification FAILED: Discontinuity or orphaned records detected.",
+                    message="Audit chain verification FAILED: Discontinuity or orphaned records detected.",
                 )
 
             expected_prev_hash = GENESIS_HASH

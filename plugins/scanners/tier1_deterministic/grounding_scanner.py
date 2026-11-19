@@ -1,6 +1,8 @@
 import json
-from typing import Any, List
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 
@@ -85,3 +87,4 @@ class EvidenceGroundingScanner(BaseScanner):
             status="pass",
             details={"verified_citations": citations},
         )
+

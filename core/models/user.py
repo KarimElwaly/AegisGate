@@ -1,7 +1,8 @@
 import datetime
-from typing import Optional
+
 from sqlalchemy import Boolean, DateTime, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
+
 from core.database import Base
 
 
@@ -32,7 +33,8 @@ class ApiKeyRecord(Base):
     key_prefix: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     key_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     role: Mapped[str] = mapped_column(String(32), default="Auditor")
-    expires_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.datetime.utcnow
     )
+

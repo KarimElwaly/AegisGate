@@ -1,7 +1,9 @@
 import ipaddress
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 
@@ -14,10 +16,10 @@ class ToolParamGuardConfig(BaseModel):
     block_path_traversal: bool = True
     block_shell_metachars: bool = True
     enforce_sql_read_only: bool = False
-    denied_cidrs: List[str] = Field(default_factory=list)
-    allowed_cidrs: List[str] = Field(default_factory=list)
-    protected_ips_or_cidrs: List[str] = Field(default_factory=list)
-    param_regex_rules: Dict[str, str] = Field(default_factory=dict)
+    denied_cidrs: list[str] = Field(default_factory=list)
+    allowed_cidrs: list[str] = Field(default_factory=list)
+    protected_ips_or_cidrs: list[str] = Field(default_factory=list)
+    param_regex_rules: dict[str, str] = Field(default_factory=dict)
 
 
 class ToolParamGuard(BaseScanner):
@@ -34,7 +36,7 @@ class ToolParamGuard(BaseScanner):
     )
     IP_REGEX = re.compile(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b")
 
-    def _check_ip_against_networks(self, ip_str: str, cidr_list: List[str]) -> bool:
+    def _check_ip_against_networks(self, ip_str: str, cidr_list: list[str]) -> bool:
         try:
             ip_obj = ipaddress.ip_address(ip_str)
             for cidr in cidr_list:

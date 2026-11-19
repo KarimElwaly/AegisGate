@@ -1,7 +1,9 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import select
+
 from core.audit.exporter import ComplianceAuditExporter
 from core.audit.verifier import AuditVerificationResult, AuditVerifier
 from core.database import db_context
@@ -26,7 +28,7 @@ async def verify_audit_chain(
 async def export_audit_logs(
     tenant_id: str = Query(default="default", description="Tenant ID to export"),
     format: str = Query(default="jsonl", pattern="^(jsonl|csv)$", description="Export format: jsonl or csv"),
-    compliance_tag: Optional[str] = Query(default=None, description="Optional regulatory tag filter (e.g. OWASP-LLM, SOC2)"),
+    compliance_tag: str | None = Query(default=None, description="Optional regulatory tag filter (e.g. OWASP-LLM, SOC2)"),
 ) -> Response:
     """Exports audit logs in JSONL or CSV with compliance tag filtering."""
     exporter = ComplianceAuditExporter()
@@ -43,11 +45,11 @@ async def export_audit_logs(
 @router.get("")
 async def list_audit_records(
     tenant_id: str = Query(default="default", description="Tenant ID"),
-    decision: Optional[str] = Query(default=None, description="Filter by decision"),
+    decision: str | None = Query(default=None, description="Filter by decision"),
     limit: int = Query(default=50, ge=1, le=500, description="Max records to return"),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Lists audit records for a tenant."""
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     try:
         async with db_context() as session:
             stmt = select(AuditRecord).where(AuditRecord.tenant_id == tenant_id)
@@ -80,5 +82,5 @@ async def list_audit_records(
                     "record_hash": r.record_hash,
                 })
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Database query error: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Database query error: {exc!s}")
     return results

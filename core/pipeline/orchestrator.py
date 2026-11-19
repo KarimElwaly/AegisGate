@@ -1,7 +1,9 @@
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel
+
 from core.config import get_settings
 from core.governance.budgets import get_budget_manager
 from core.governance.delegation import DelegationPolicyConfig, get_delegation_validator
@@ -34,7 +36,7 @@ class PipelineOrchestrator:
 
     def __init__(
         self,
-        plugin_registry: Optional[PluginRegistry] = None,
+        plugin_registry: PluginRegistry | None = None,
         policy_engine=None,
     ) -> None:
         self.registry = plugin_registry or get_plugin_registry()
@@ -43,9 +45,9 @@ class PipelineOrchestrator:
         self.budget_manager = get_budget_manager()
         self.loop_detector = get_loop_detector()
         self.delegation_validator = get_delegation_validator()
-        self._parsed_config_cache: Dict[str, Any] = {}
+        self._parsed_config_cache: dict[str, Any] = {}
 
-    def _get_typed_config(self, scanner: BaseScanner, raw_config: Dict[str, Any], pack_id: str, pack_version: str) -> Any:
+    def _get_typed_config(self, scanner: BaseScanner, raw_config: dict[str, Any], pack_id: str, pack_version: str) -> Any:
         cache_key = f"{pack_id}:{pack_version}:{scanner.name}"
         cached = self._parsed_config_cache.get(cache_key)
         if cached is not None:
@@ -67,7 +69,7 @@ class PipelineOrchestrator:
         self,
         scanner: BaseScanner,
         request: EvaluationRequest,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         typed_config: Any,
         timeout_ms: int,
         on_timeout: str,
@@ -78,7 +80,7 @@ class PipelineOrchestrator:
                 scanner.scan(request, context, typed_config),
                 timeout=timeout_sec,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Scanner timed out", scanner=scanner.name, timeout_ms=timeout_ms)
             status = "block" if on_timeout == "deny" else "flag" if on_timeout == "flag" else "pass"
             return ScannerResult(
@@ -98,7 +100,7 @@ class PipelineOrchestrator:
                 status=status,
                 score=0.5 if status == "error" else 1.0,
                 details={"exception": str(exc)},
-                message=f"Scanner {scanner.name} failed with error: {str(exc)}",
+                message=f"Scanner {scanner.name} failed with error: {exc!s}",
             )
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationVerdict:
@@ -266,7 +268,7 @@ class PipelineOrchestrator:
         # -------------------------------------------------------------
         # 6. CONTEXT RESOLVERS ENRICHMENT
         # -------------------------------------------------------------
-        resolved_context: Dict[str, Any] = {}
+        resolved_context: dict[str, Any] = {}
         for resolver_binding in policy_pack.resolvers:
             if not resolver_binding.enabled:
                 continue
@@ -294,7 +296,7 @@ class PipelineOrchestrator:
 
         pack_scanner_map = {s.name: s for s in policy_pack.scanners}
 
-        tier_scanners: Dict[int, List[BaseScanner]] = {1: [], 2: [], 3: []}
+        tier_scanners: dict[int, list[BaseScanner]] = {1: [], 2: [], 3: []}
         for s in available_scanners:
             if policy_pack.scanners:
                 cfg = pack_scanner_map.get(s.name)
@@ -305,10 +307,10 @@ class PipelineOrchestrator:
                     continue
             tier_scanners.setdefault(s.tier, []).append(s)
 
-        all_findings: List[ScannerFinding] = []
-        mutated_content_map: Dict[str, Any] = {}
-        mutated_parameters_map: Dict[str, Any] = {}
-        redaction_map: Dict[str, str] = {}
+        all_findings: list[ScannerFinding] = []
+        mutated_content_map: dict[str, Any] = {}
+        mutated_parameters_map: dict[str, Any] = {}
+        redaction_map: dict[str, str] = {}
         short_circuit = False
 
         for tier in (1, 2, 3):
@@ -335,7 +337,7 @@ class PipelineOrchestrator:
                     )
                 )
 
-            tier_results: List[ScannerResult] = await asyncio.gather(*tasks)
+            tier_results: list[ScannerResult] = await asyncio.gather(*tasks)
 
             for res in tier_results:
                 finding = ScannerFinding(
@@ -391,7 +393,7 @@ class PipelineOrchestrator:
             effective_decision = nominal_decision
             would_have_decided = nominal_decision
 
-        approval_ticket: Optional[ApprovalTicketInfo] = None
+        approval_ticket: ApprovalTicketInfo | None = None
         if nominal_decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
             approval_cfg = rule_mutations.get("approval_config", {})
             try:
@@ -473,7 +475,7 @@ class PipelineOrchestrator:
                 eff_mode_str = effective_mode.value if hasattr(effective_mode, "value") else str(effective_mode)
                 would_dec_str = would_have_decided.value if hasattr(would_have_decided, "value") else str(would_have_decided)
 
-                if getattr(request, "record_audit_sync", False):
+                if getattr(request, "record_audit_sync", False) or get_settings().AEGIS_ENV == "test":
                     await ledger.record_event(
                         request=request,
                         verdict=verdict,

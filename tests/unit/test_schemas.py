@@ -1,4 +1,5 @@
 import uuid
+
 from core.schemas.common import DecisionEnum, EffectiveModeEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
 from core.schemas.policy import ConditionExpression, PolicyPackDefinition, PolicyRule, RuleAction
@@ -78,3 +79,4 @@ def test_policy_pack_definition():
     assert pack.id == "custom-pack"
     assert len(pack.rules) == 1
     assert pack.rules[0].condition.field == "actor.role"
+

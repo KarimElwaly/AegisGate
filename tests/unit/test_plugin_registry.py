@@ -1,5 +1,6 @@
 import pytest
 from pydantic import BaseModel
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.registry.registry import PluginRegistry
 from core.schemas.events import EvaluationRequest
@@ -53,3 +54,4 @@ def test_registry_type_safety():
     reg = PluginRegistry()
     with pytest.raises(TypeError):
         reg.register_scanner("not_a_scanner")  # type: ignore
+

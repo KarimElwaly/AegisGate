@@ -1,4 +1,5 @@
 import pytest
+
 from core.pii_vault.vault import PiiVault
 
 
@@ -31,3 +32,4 @@ async def test_pii_vault_tokenization_and_rehydration():
     mappings = await vault.get_session_mappings(tenant_id, session_id)
     assert mappings[token1] == ip
     assert mappings[token3] == ip2
+

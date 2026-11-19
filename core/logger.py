@@ -1,6 +1,8 @@
 import logging
 import sys
+
 import structlog
+
 from core.config import get_settings
 
 
@@ -46,3 +48,4 @@ def configure_logging() -> None:
 
 def get_logger(name: str = "aegisgate") -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)
+

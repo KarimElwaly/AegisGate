@@ -1,4 +1,6 @@
 import pytest
+
+from core.schemas.events import ActionModel, ContentModel, EvaluationRequest
 from plugins.scanners.tier1_deterministic.entropy_size_guard import (
     EntropySizeGuard,
     EntropySizeGuardConfig,
@@ -27,7 +29,6 @@ from plugins.scanners.webhook_scanner import (
     WebhookScanner,
     WebhookScannerConfig,
 )
-from core.schemas.events import ActionModel, ContentModel, EvaluationRequest
 
 
 @pytest.mark.asyncio

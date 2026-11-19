@@ -1,6 +1,8 @@
-from typing import Any, Dict, Type
+from typing import Any
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.logger import get_logger
 from core.registry.interfaces import BaseNotifier
 
@@ -18,12 +20,12 @@ class SlackNotifierConfig(BaseModel):
 class SlackNotifier(BaseNotifier):
     name: str = "slack_notifier"
     version: str = "1.0.0"
-    config_schema: Type[BaseModel] = SlackNotifierConfig
+    config_schema: type[BaseModel] = SlackNotifierConfig
 
     async def notify(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         config: BaseModel,
     ) -> bool:
         cfg = config if isinstance(config, SlackNotifierConfig) else SlackNotifierConfig(**config.model_dump())
@@ -61,3 +63,4 @@ class SlackNotifier(BaseNotifier):
         except Exception as e:
             logger.warning("slack_notification_failed", url=cfg.webhook_url, error=str(e))
             return False
+

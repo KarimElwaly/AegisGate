@@ -1,7 +1,9 @@
 import asyncio
-from typing import Any, Dict, Optional, Type
+from typing import Any
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.logger import get_logger
 from core.registry.interfaces import BaseNotifier
 
@@ -11,8 +13,8 @@ logger = get_logger("plugins.notifiers.siem_cef")
 class SiemCefNotifierConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    siem_endpoint_url: Optional[str] = Field(default=None, description="HTTP/Syslog collector endpoint URL")
-    siem_host: Optional[str] = Field(default=None, description="Target SIEM host for socket syslog")
+    siem_endpoint_url: str | None = Field(default=None, description="HTTP/Syslog collector endpoint URL")
+    siem_host: str | None = Field(default=None, description="Target SIEM host for socket syslog")
     siem_port: int = Field(default=514, description="Target SIEM syslog port")
     facility: str = Field(default="local4", description="Syslog facility")
 
@@ -20,9 +22,9 @@ class SiemCefNotifierConfig(BaseModel):
 class SiemCefNotifier(BaseNotifier):
     name: str = "siem_cef_notifier"
     version: str = "1.0.0"
-    config_schema: Type[BaseModel] = SiemCefNotifierConfig
+    config_schema: type[BaseModel] = SiemCefNotifierConfig
 
-    def format_cef(self, event_type: str, payload: Dict[str, Any]) -> str:
+    def format_cef(self, event_type: str, payload: dict[str, Any]) -> str:
         """
         Formats event into standard ArcSight Common Event Format (CEF):
         CEF:0|AegisGate|PDP|1.0|SignatureID|Name|Severity|Extension
@@ -40,7 +42,7 @@ class SiemCefNotifier(BaseNotifier):
     async def notify(
         self,
         event_type: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         config: BaseModel,
     ) -> bool:
         cfg = config if isinstance(config, SiemCefNotifierConfig) else SiemCefNotifierConfig(**config.model_dump())
@@ -74,3 +76,4 @@ class SiemCefNotifier(BaseNotifier):
         # In local/test mode without remote SIEM, log at info
         logger.info("siem_cef_alert", cef=cef_line)
         return True
+

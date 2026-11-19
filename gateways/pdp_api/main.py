@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from core.bootstrap import bootstrap_system
 from core.config import get_settings
 from core.database import close_database

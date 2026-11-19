@@ -21,17 +21,18 @@ from core.governance.loop_detector import (
 )
 
 __all__ = [
-    "KillSwitchService",
-    "default_kill_switch_service",
-    "get_kill_switch_service",
     "BudgetManager",
-    "default_budget_manager",
-    "get_budget_manager",
-    "LoopDetector",
-    "default_loop_detector",
-    "get_loop_detector",
-    "DelegationValidator",
     "DelegationPolicyConfig",
+    "DelegationValidator",
+    "KillSwitchService",
+    "LoopDetector",
+    "default_budget_manager",
     "default_delegation_validator",
+    "default_kill_switch_service",
+    "default_loop_detector",
+    "get_budget_manager",
     "get_delegation_validator",
+    "get_kill_switch_service",
+    "get_loop_detector",
 ]
+

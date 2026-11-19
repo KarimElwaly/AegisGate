@@ -1,9 +1,11 @@
 import hashlib
 import json
 import re
-from typing import Any, Dict
+from typing import Any
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.logger import get_logger
 from core.redis_client import get_redis_client
 from core.registry.interfaces import BaseContextResolver
@@ -18,10 +20,10 @@ class HTTPContextResolverConfig(BaseModel):
     enabled: bool = True
     url_template: str = "http://localhost:8080/api/assets/{target_ip}"
     method: str = "GET"
-    headers: Dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(default_factory=dict)
     timeout_ms: int = 300
     cache_ttl_seconds: int = 300
-    fallback_response: Dict[str, Any] = Field(default_factory=dict)
+    fallback_response: dict[str, Any] = Field(default_factory=dict)
 
 
 class HTTPContextResolver(BaseContextResolver):
@@ -51,7 +53,7 @@ class HTTPContextResolver(BaseContextResolver):
         self,
         request: EvaluationRequest,
         config: BaseModel,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         cfg = config if isinstance(config, HTTPContextResolverConfig) else HTTPContextResolverConfig(**config.model_dump())
         if not cfg.enabled:
             return {}
@@ -95,3 +97,4 @@ class HTTPContextResolver(BaseContextResolver):
             )
 
         return dict(cfg.fallback_response)
+

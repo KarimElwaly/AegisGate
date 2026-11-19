@@ -1,9 +1,10 @@
 import importlib
 import inspect
 import os
-import pkgutil
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
+
 from pydantic import BaseModel
+
 from core.logger import get_logger
 from core.registry.interfaces import BaseContextResolver, BaseNotifier, BaseScanner
 
@@ -16,9 +17,9 @@ class PluginRegistry:
     """
 
     def __init__(self) -> None:
-        self._scanners: Dict[str, BaseScanner] = {}
-        self._resolvers: Dict[str, BaseContextResolver] = {}
-        self._notifiers: Dict[str, BaseNotifier] = {}
+        self._scanners: dict[str, BaseScanner] = {}
+        self._resolvers: dict[str, BaseContextResolver] = {}
+        self._notifiers: dict[str, BaseNotifier] = {}
 
     # Scanner management
     def register_scanner(self, scanner: BaseScanner) -> None:
@@ -41,13 +42,13 @@ class PluginRegistry:
             del self._scanners[name]
             logger.info("Unregistered scanner", name=name)
 
-    def get_scanner(self, name: str) -> Optional[BaseScanner]:
+    def get_scanner(self, name: str) -> BaseScanner | None:
         return self._scanners.get(name)
 
-    def get_all_scanners(self) -> Dict[str, BaseScanner]:
+    def get_all_scanners(self) -> dict[str, BaseScanner]:
         return dict(self._scanners)
 
-    def get_scanners_for_stage(self, stage: str) -> List[BaseScanner]:
+    def get_scanners_for_stage(self, stage: str) -> list[BaseScanner]:
         matched = []
         for scanner in self._scanners.values():
             if not scanner.supported_stages or stage in scanner.supported_stages:
@@ -61,10 +62,10 @@ class PluginRegistry:
         self._resolvers[resolver.name] = resolver
         logger.info("Registered context resolver", name=resolver.name)
 
-    def get_resolver(self, name: str) -> Optional[BaseContextResolver]:
+    def get_resolver(self, name: str) -> BaseContextResolver | None:
         return self._resolvers.get(name)
 
-    def get_all_resolvers(self) -> Dict[str, BaseContextResolver]:
+    def get_all_resolvers(self) -> dict[str, BaseContextResolver]:
         return dict(self._resolvers)
 
     # Notifier management
@@ -74,17 +75,17 @@ class PluginRegistry:
         self._notifiers[notifier.name] = notifier
         logger.info("Registered notifier", name=notifier.name)
 
-    def get_notifier(self, name: str) -> Optional[BaseNotifier]:
+    def get_notifier(self, name: str) -> BaseNotifier | None:
         return self._notifiers.get(name)
 
-    def get_all_notifiers(self) -> Dict[str, BaseNotifier]:
+    def get_all_notifiers(self) -> dict[str, BaseNotifier]:
         return dict(self._notifiers)
 
     # Configuration Schema validation and introspection (for Admin UI)
     def validate_plugin_config(
-        self, plugin_type: str, name: str, raw_config: Dict[str, Any]
+        self, plugin_type: str, name: str, raw_config: dict[str, Any]
     ) -> BaseModel:
-        target: Optional[Any] = None
+        target: Any | None = None
         if plugin_type == "scanner":
             target = self.get_scanner(name)
         elif plugin_type == "resolver":
@@ -98,9 +99,9 @@ class PluginRegistry:
         schema_cls = getattr(target, "config_schema", BaseModel)
         return schema_cls(**raw_config)
 
-    def get_plugin_catalog(self) -> Dict[str, List[Dict[str, Any]]]:
+    def get_plugin_catalog(self) -> dict[str, list[dict[str, Any]]]:
         """Returns metadata and JSON schemas of all registered plugins for UI auto-rendering."""
-        catalog: Dict[str, List[Dict[str, Any]]] = {
+        catalog: dict[str, list[dict[str, Any]]] = {
             "scanners": [],
             "resolvers": [],
             "notifiers": [],

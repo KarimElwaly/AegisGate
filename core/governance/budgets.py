@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 from core.config import get_settings
 from core.logger import get_logger
 from core.redis_client import get_redis_client
@@ -61,7 +62,7 @@ class BudgetManager:
     """Atomic Redis Lua Budget & Quota enforcement per Tenant, Workspace, Session, or Agent."""
 
     def __init__(self) -> None:
-        self._local_storage: Dict[str, Dict[str, Any]] = {}
+        self._local_storage: dict[str, dict[str, Any]] = {}
 
     def _get_budget_key(self, tenant_id: str, scope_type: str, scope_id: str) -> str:
         prefix = get_settings().REDIS_KEY_PREFIX
@@ -81,7 +82,7 @@ class BudgetManager:
         max_tool_calls: int = 0,
         max_consecutive_failures: int = 0,
         ttl_seconds: int = 86400,
-    ) -> Tuple[bool, str, BudgetSnapshot]:
+    ) -> tuple[bool, str, BudgetSnapshot]:
         key = self._get_budget_key(tenant_id, scope_type, scope_id)
 
         try:
@@ -125,7 +126,7 @@ class BudgetManager:
                 )
 
             return is_allowed, status_or_reason, snapshot
-        except Exception as exc:
+        except Exception:
             # Memory fallback when Redis/Lua is not available in mock/testing
             if key not in self._local_storage:
                 self._local_storage[key] = {

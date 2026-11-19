@@ -1,6 +1,8 @@
 import uuid
-from typing import Any, Optional
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.schemas.common import ActorTypeEnum, StageEnum
 
 
@@ -17,7 +19,7 @@ class ActionModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     name: str = "default_action"
-    target: Optional[str] = None
+    target: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     estimated_tokens: int = 0
     estimated_cost_usd: float = 0.0
@@ -26,7 +28,7 @@ class ActionModel(BaseModel):
 class ContentModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    trusted_instructions: Optional[str] = None
+    trusted_instructions: str | None = None
     untrusted_data: Any = None
     output_payload: Any = None
     citations: list[str] = Field(default_factory=list)
@@ -42,11 +44,12 @@ class EvaluationRequest(BaseModel):
     policy_pack_id: str = "base-enterprise"
     policy_pack_version: str = "latest"
     trace_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    span_id: Optional[str] = None
-    session_id: Optional[str] = None
+    span_id: str | None = None
+    session_id: str | None = None
     stage: StageEnum = StageEnum.LLM_INPUT
     actor: ActorModel = Field(default_factory=lambda: ActorModel(id="default_actor"))
     action: ActionModel = Field(default_factory=ActionModel)
     content: ContentModel = Field(default_factory=ContentModel)
-    execution_mode_override: Optional[str] = None
+    execution_mode_override: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+

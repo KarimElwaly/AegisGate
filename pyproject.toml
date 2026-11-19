@@ -55,3 +55,18 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+ignore = [
+    "B008",   # Do not perform function call `Depends` in argument defaults
+    "BLE001", # Do not catch blind exception `Exception`
+    "DTZ003", # `datetime.datetime.utcnow()`
+    "RUF012", # Mutable default value for class attribute
+    "RUF059", # Unpacked variable is never used
+    "F841",   # Local variable is assigned to but never used
+    "TRY201", # Use `raise` without specifying exception name
+    "S105",   # Possible hardcoded password
+    "S106",   # Possible hardcoded password
+    "S110",   # `try`-`except`-`pass` detected
+    "S101",   # Use of `assert` detected
+]

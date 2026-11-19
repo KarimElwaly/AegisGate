@@ -1,9 +1,10 @@
-from typing import Dict, Any, Optional
+from typing import Any
+
 from fastapi import FastAPI, HTTPException
 
 mock_inventory_app = FastAPI(title="Mock Asset Inventory Service")
 
-MOCK_ASSET_DATABASE: Dict[str, Dict[str, Any]] = {
+MOCK_ASSET_DATABASE: dict[str, dict[str, Any]] = {
     "asset-dc-01": {
         "asset_id": "asset-dc-01",
         "hostname": "dc-primary.corp.local",
@@ -32,8 +33,9 @@ MOCK_ASSET_DATABASE: Dict[str, Dict[str, Any]] = {
 
 
 @mock_inventory_app.get("/v1/assets/{asset_id}")
-async def get_asset(asset_id: str) -> Dict[str, Any]:
+async def get_asset(asset_id: str) -> dict[str, Any]:
     asset = MOCK_ASSET_DATABASE.get(asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset '{asset_id}' not found in inventory")
     return asset
+

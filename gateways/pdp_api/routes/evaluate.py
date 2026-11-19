@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from core.schemas.events import EvaluationRequest
 from core.schemas.verdicts import EvaluationVerdict
@@ -16,4 +17,5 @@ async def evaluate(
         verdict = await orchestrator.evaluate(request)
         return verdict
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Pipeline evaluation error: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Pipeline evaluation error: {exc!s}")
+

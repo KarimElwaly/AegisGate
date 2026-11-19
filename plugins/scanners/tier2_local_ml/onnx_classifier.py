@@ -1,7 +1,9 @@
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
 from core.logger import get_logger
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
@@ -13,7 +15,7 @@ class ONNXClassifierConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     enabled: bool = True
-    model_path: Optional[str] = None
+    model_path: str | None = None
     threshold: float = 0.75
     action_on_match: str = "block"  # "block" | "flag"
     inspect_untrusted_data_only: bool = True
@@ -80,14 +82,14 @@ class ONNXInjectionClassifier(BaseScanner):
                 logger.warning("Failed to initialize ONNX session, using fallback", error=str(e))
                 self._session = None
 
-    def _evaluate_semantic_heuristic(self, text: str) -> Tuple[float, List[str]]:
+    def _evaluate_semantic_heuristic(self, text: str) -> tuple[float, list[str]]:
         """Evaluates whether text contains an Indirect Prompt Injection targeting the LLM
         while ensuring benign technical security strings do not trigger false positives.
         """
         if not text:
             return 0.0, []
 
-        matches: List[str] = []
+        matches: list[str] = []
 
         # Check for directive override patterns
         for pattern in self.DIRECTIVE_OVERRIDE_PATTERNS:
@@ -132,8 +134,8 @@ class ONNXInjectionClassifier(BaseScanner):
         combined_text = " ".join(text_candidates)
 
         score = 0.0
-        details: Dict[str, Any] = {}
-        detected_cues: List[str] = []
+        details: dict[str, Any] = {}
+        detected_cues: list[str] = []
 
         if cfg.model_path and os.path.isfile(cfg.model_path):
             self._init_onnx_session(cfg.model_path)

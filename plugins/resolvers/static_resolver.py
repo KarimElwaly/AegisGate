@@ -1,5 +1,7 @@
-from typing import Any, Dict
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.registry.interfaces import BaseContextResolver
 from core.schemas.events import EvaluationRequest
 
@@ -9,9 +11,9 @@ class StaticLookupResolverConfig(BaseModel):
 
     enabled: bool = True
     lookup_field: str = "action.parameters.target_ip"
-    lookup_table: Dict[str, Any] = Field(default_factory=dict)
+    lookup_table: dict[str, Any] = Field(default_factory=dict)
     output_key: str = "resolved_asset"
-    fallback_response: Dict[str, Any] = Field(default_factory=dict)
+    fallback_response: dict[str, Any] = Field(default_factory=dict)
 
 
 class StaticLookupResolver(BaseContextResolver):
@@ -37,7 +39,7 @@ class StaticLookupResolver(BaseContextResolver):
         self,
         request: EvaluationRequest,
         config: BaseModel,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         cfg = config if isinstance(config, StaticLookupResolverConfig) else StaticLookupResolverConfig(**config.model_dump())
         if not cfg.enabled or not cfg.lookup_table:
             return dict(cfg.fallback_response)
@@ -55,3 +57,4 @@ class StaticLookupResolver(BaseContextResolver):
             return {cfg.output_key: matched}
 
         return dict(cfg.fallback_response)
+

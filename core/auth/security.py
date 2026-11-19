@@ -2,8 +2,10 @@ import datetime
 import hashlib
 import os
 import secrets
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
+
 import jwt
+
 from core.config import get_settings
 
 SETTINGS = get_settings()
@@ -28,8 +30,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(
-    data: Dict[str, Any],
-    expires_delta: Optional[datetime.timedelta] = None,
+    data: dict[str, Any],
+    expires_delta: datetime.timedelta | None = None,
 ) -> str:
     """Encodes a JWT access token containing subject, tenant_id, role, and expiration."""
     to_encode = data.copy()
@@ -47,7 +49,7 @@ def create_access_token(
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> Dict[str, Any]:
+def decode_access_token(token: str) -> dict[str, Any]:
     """Decodes and cryptographically validates a JWT access token."""
     return jwt.decode(
         token,
@@ -56,7 +58,7 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     )
 
 
-def generate_api_key(tenant_id: str, role: str) -> Tuple[str, str, str]:
+def generate_api_key(tenant_id: str, role: str) -> tuple[str, str, str]:
     """
     Generates a secure scoped API key.
     Returns:
@@ -69,3 +71,4 @@ def generate_api_key(tenant_id: str, role: str) -> Tuple[str, str, str]:
     key_prefix = raw_api_key[:12]
     key_hash = hashlib.sha256(raw_api_key.encode("utf-8")).hexdigest()
     return raw_api_key, key_prefix, key_hash
+

@@ -1,9 +1,9 @@
 import pytest
+
 from core.policy_engine.yaml_engine import YamlPolicyEngine
-from core.schemas.common import DecisionEnum, SeverityEnum
-from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
+from core.schemas.common import DecisionEnum
+from core.schemas.events import ActionModel, ActorModel, EvaluationRequest
 from core.schemas.policy import ConditionExpression, PolicyPackDefinition, PolicyRule, RuleAction
-from core.schemas.verdicts import ScannerFinding
 
 
 @pytest.mark.asyncio
@@ -104,3 +104,4 @@ async def test_yaml_engine_inheritance():
     # Check rule priority ordering: priority 10 before priority 100
     assert resolved.rules[0].id == "child-rule-1"
     assert resolved.rules[1].id == "base-rule-1"
+

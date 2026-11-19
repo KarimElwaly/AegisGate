@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 from core.config import get_settings
 from core.logger import get_logger
 from core.redis_client import get_redis_client
@@ -17,7 +18,7 @@ class KillSwitchService:
     """
 
     def __init__(self) -> None:
-        self._local_kill_switches: Dict[str, str] = {}
+        self._local_kill_switches: dict[str, str] = {}
 
     def _get_key(self, scope: str, target: str, tenant_id: str = "default") -> str:
         prefix = get_settings().REDIS_KEY_PREFIX
@@ -40,7 +41,7 @@ class KillSwitchService:
         target: str,
         reason: str = "Emergency kill switch activated",
         tenant_id: str = "default",
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> str:
         key = self._get_key(scope, target, tenant_id)
         try:
@@ -88,8 +89,8 @@ class KillSwitchService:
         tenant_id: str,
         workspace_id: str,
         agent_id: str,
-        tool_name: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        tool_name: str | None = None,
+    ) -> tuple[bool, str | None, str | None]:
         """Atomic check across all 5 scopes in a single Redis MGET roundtrip.
         Returns: (is_killed, scope, reason)
         """
@@ -111,7 +112,7 @@ class KillSwitchService:
                 if val is not None:
                     scope = k.split(":")[2]
                     return True, scope, str(val)
-        except Exception as e:
+        except Exception:
             # Check local memory fallback
             for k in keys_to_check:
                 if k in self._local_kill_switches:
@@ -120,9 +121,9 @@ class KillSwitchService:
 
         return False, None, None
 
-    async def list_active_kill_switches(self) -> List[Dict[str, Any]]:
+    async def list_active_kill_switches(self) -> list[dict[str, Any]]:
         prefix = get_settings().REDIS_KEY_PREFIX
-        active: List[Dict[str, Any]] = []
+        active: list[dict[str, Any]] = []
         try:
             redis = await get_redis_client()
             keys = await redis.smembers(f"{prefix}kill:active_keys")
@@ -146,3 +147,4 @@ default_kill_switch_service = KillSwitchService()
 
 def get_kill_switch_service() -> KillSwitchService:
     return default_kill_switch_service
+

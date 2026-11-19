@@ -1,11 +1,12 @@
-from typing import Optional
+
 import redis.asyncio as aioredis
+
 from core.config import get_settings
 from core.logger import get_logger
 
 logger = get_logger("core.redis")
 
-_redis_client: Optional[aioredis.Redis] = None
+_redis_client: aioredis.Redis | None = None
 
 
 async def get_redis_client() -> aioredis.Redis:
@@ -50,3 +51,4 @@ async def close_redis_client() -> None:
         except Exception:
             pass
         _redis_client = None
+

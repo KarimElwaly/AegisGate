@@ -117,3 +117,4 @@ def downgrade() -> None:
     op.drop_table("shadow_deltas")
     op.drop_table("approval_tickets")
     op.drop_table("audit_records")
+

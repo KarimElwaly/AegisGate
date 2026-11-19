@@ -1,7 +1,8 @@
 import datetime
-from typing import Optional
+
 from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
+
 from core.database import Base
 
 
@@ -17,7 +18,7 @@ class PolicyPackRecord(Base):
     pack_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     version: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="draft", index=True)  # draft | shadow | active | archived
     yaml_dsl: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(
@@ -26,3 +27,4 @@ class PolicyPackRecord(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
+

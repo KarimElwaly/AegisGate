@@ -148,3 +148,4 @@ rules:
       severity: high
       reason: "Investigation report contains ungrounded claims or invalid Evidence IDs"
       compliance_tags: ["OWASP-LLM09", "NIST-AI-RMF-MEASURE"]
+

@@ -1,6 +1,5 @@
-import time
-from typing import Optional
 from prometheus_client import Counter, Histogram
+
 from core.logger import get_logger
 
 logger = get_logger("core.telemetry")
@@ -37,3 +36,4 @@ def record_evaluation_metric(tenant_id: str, stage: str, decision: str, latency_
         EVALUATION_LATENCY.labels(stage=stage).observe(latency_seconds)
     except Exception as e:
         logger.debug("telemetry_record_failed", error=str(e))
+

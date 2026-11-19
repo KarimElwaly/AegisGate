@@ -1,8 +1,9 @@
 import pytest
+
 from core.governance.budgets import get_budget_manager
 from core.governance.kill_switch import get_kill_switch_service
 from core.governance.loop_detector import get_loop_detector
-from core.policy_engine.opa_engine import OPAEngineConfig, OPAPolicyEngine
+from core.policy_engine.opa_engine import OPAPolicyEngine
 from core.schemas.common import DecisionEnum
 from core.schemas.events import ActorModel, EvaluationRequest
 from core.schemas.policy import PolicyPackDefinition
@@ -110,3 +111,4 @@ async def test_opa_mock_success(monkeypatch):
     assert risk == 0.85
     assert len(triggered) == 1
     assert triggered[0].rule_id == "opa-rego-custom"
+

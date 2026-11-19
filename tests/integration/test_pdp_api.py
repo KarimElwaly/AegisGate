@@ -137,3 +137,4 @@ async def test_pdp_evaluate_endpoint(api_client):
     assert verdict_shadow["decision"] == "ALLOW"
     assert verdict_shadow["effective_mode"] == "shadow"
     assert verdict_shadow["would_have_decided"] == "DENY"
+

@@ -1,7 +1,7 @@
-from typing import List
+
 from fastapi import APIRouter, HTTPException, Query
+
 from core.simulator.replay import (
-    PolicyReplaySimulator,
     ReplayDiffReport,
     ReplaySimulationRequest,
     get_replay_simulator,
@@ -11,11 +11,11 @@ from core.simulator.shadow import ShadowDeltaItem, get_shadow_delta_manager
 router = APIRouter(prefix="/v1/simulate", tags=["Policy Simulation & Shadow Mode"])
 
 
-@router.get("/shadow-deltas", response_model=List[ShadowDeltaItem])
+@router.get("/shadow-deltas", response_model=list[ShadowDeltaItem])
 async def list_shadow_deltas(
     tenant_id: str = Query(default="default", description="Tenant ID"),
     limit: int = Query(default=50, ge=1, le=500),
-) -> List[ShadowDeltaItem]:
+) -> list[ShadowDeltaItem]:
     """Retrieves live shadow deltas where active_decision != shadow_decision."""
     mgr = get_shadow_delta_manager()
     return await mgr.list_deltas(tenant_id=tenant_id, limit=limit)
@@ -36,4 +36,5 @@ async def replay_simulation(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Simulation replay error: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Simulation replay error: {exc!s}")
+

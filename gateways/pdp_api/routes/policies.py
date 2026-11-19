@@ -1,9 +1,11 @@
-from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Any
+
+import yaml
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-import yaml
+
 from core.database import get_db_session
 from core.logger import get_logger
 from core.models.policy import PolicyPackRecord
@@ -31,18 +33,18 @@ class PolicyRollbackPayload(BaseModel):
     target_version: str
 
 
-@router.post("", response_model=Dict[str, Any])
+@router.post("", response_model=dict[str, Any])
 async def create_or_update_policy(
     payload: PolicyCreatePayload,
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Upload, validate, and store a new version of a Policy Pack."""
     try:
         raw_dict = yaml.safe_load(payload.yaml_content)
         parsed_pack = PolicyPackDefinition(**raw_dict)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid Policy Pack YAML: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid Policy Pack YAML: {e!s}")
 
     # Check if this (tenant_id, pack_id, version) already exists
     stmt = select(PolicyPackRecord).where(
@@ -98,12 +100,12 @@ async def create_or_update_policy(
     }
 
 
-@router.get("", response_model=List[Dict[str, Any]])
+@router.get("", response_model=list[dict[str, Any]])
 async def list_policies(
     tenant_id: str = "default",
-    status: Optional[str] = None,
+    status: str | None = None,
     db: AsyncSession = Depends(get_db_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """List policy packs for a given tenant."""
     query = select(PolicyPackRecord).where(PolicyPackRecord.tenant_id == tenant_id)
     if status:
@@ -130,13 +132,13 @@ async def list_policies(
     ]
 
 
-@router.get("/{pack_id}", response_model=Dict[str, Any])
+@router.get("/{pack_id}", response_model=dict[str, Any])
 async def get_policy_pack(
     pack_id: str,
     tenant_id: str = "default",
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get active policy pack details."""
     # Check in-memory engine first
     in_mem = engine.get_policy_pack(pack_id)
@@ -182,12 +184,12 @@ async def get_policy_pack(
     }
 
 
-@router.get("/{pack_id}/versions", response_model=List[Dict[str, Any]])
+@router.get("/{pack_id}/versions", response_model=list[dict[str, Any]])
 async def get_policy_versions(
     pack_id: str,
     tenant_id: str = "default",
     db: AsyncSession = Depends(get_db_session),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get version history for a policy pack."""
     stmt = (
         select(PolicyPackRecord)
@@ -212,14 +214,14 @@ async def get_policy_versions(
     ]
 
 
-@router.post("/{pack_id}/promote", response_model=Dict[str, Any])
+@router.post("/{pack_id}/promote", response_model=dict[str, Any])
 async def promote_policy_version(
     pack_id: str,
     payload: PolicyPromotePayload,
     tenant_id: str = "default",
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Promote a policy version: draft -> shadow -> active (1-click lifecycle)."""
     # Find the target version
     stmt = select(PolicyPackRecord).where(
@@ -262,14 +264,14 @@ async def promote_policy_version(
     }
 
 
-@router.post("/{pack_id}/rollback", response_model=Dict[str, Any])
+@router.post("/{pack_id}/rollback", response_model=dict[str, Any])
 async def rollback_policy_version(
     pack_id: str,
     payload: PolicyRollbackPayload,
     tenant_id: str = "default",
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """1-click rollback: Demotes current active version and activates target_version."""
     stmt = select(PolicyPackRecord).where(
         PolicyPackRecord.tenant_id == tenant_id,
@@ -307,3 +309,4 @@ async def rollback_policy_version(
         "pack_id": pack_id,
         "active_version": payload.target_version,
     }
+

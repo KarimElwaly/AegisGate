@@ -1,15 +1,17 @@
 import asyncio
-from contextvars import ContextVar
 import uuid
-from typing import Any, Dict, List, Optional
+from contextvars import ContextVar
+from typing import Any
+
 import httpx
+
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
 from core.schemas.verdicts import EvaluationVerdict
-from sdks.python.aegisgate.exceptions import AegisGateError, PolicyViolationError
+from sdks.python.aegisgate.exceptions import AegisGateError
 
-current_session_id: ContextVar[Optional[str]] = ContextVar("aegis_session_id", default=None)
-current_trace_id: ContextVar[Optional[str]] = ContextVar("aegis_trace_id", default=None)
+current_session_id: ContextVar[str | None] = ContextVar("aegis_session_id", default=None)
+current_trace_id: ContextVar[str | None] = ContextVar("aegis_trace_id", default=None)
 
 
 class AegisClient:
@@ -18,13 +20,13 @@ class AegisClient:
     def __init__(
         self,
         base_url: str = "http://localhost:8000",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         tenant_id: str = "default",
         workspace_id: str = "default",
         policy_pack_id: str = "base-enterprise",
         fail_open: bool = False,
         timeout: float = 5.0,
-        transport: Optional[httpx.AsyncBaseTransport] = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -35,7 +37,7 @@ class AegisClient:
         self.timeout = timeout
         self.transport = transport
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
             "X-Aegis-Tenant-Id": self.tenant_id,
@@ -53,14 +55,14 @@ class AegisClient:
         self,
         stage: StageEnum | str,
         action_name: str = "default_action",
-        parameters: Optional[Dict[str, Any]] = None,
-        trusted_instructions: Optional[str] = None,
-        untrusted_data: Optional[Any] = None,
-        output_payload: Optional[Any] = None,
+        parameters: dict[str, Any] | None = None,
+        trusted_instructions: str | None = None,
+        untrusted_data: Any | None = None,
+        output_payload: Any | None = None,
         actor_id: str = "sdk_caller",
         actor_role: str = "worker",
-        delegation_chain: Optional[List[str]] = None,
-        citations: Optional[List[str]] = None,
+        delegation_chain: list[str] | None = None,
+        citations: list[str] | None = None,
     ) -> EvaluationVerdict:
         """Async policy evaluation request."""
         session_id = current_session_id.get()
@@ -97,20 +99,20 @@ class AegisClient:
         except Exception as exc:
             if self.fail_open:
                 return EvaluationVerdict(decision=DecisionEnum.ALLOW, would_have_decided=DecisionEnum.ALLOW)
-            raise AegisGateError(f"AegisGate connection error: {str(exc)}") from exc
+            raise AegisGateError(f"AegisGate connection error: {exc!s}") from exc
 
     def evaluate_sync(
         self,
         stage: StageEnum | str,
         action_name: str = "default_action",
-        parameters: Optional[Dict[str, Any]] = None,
-        trusted_instructions: Optional[str] = None,
-        untrusted_data: Optional[Any] = None,
-        output_payload: Optional[Any] = None,
+        parameters: dict[str, Any] | None = None,
+        trusted_instructions: str | None = None,
+        untrusted_data: Any | None = None,
+        output_payload: Any | None = None,
         actor_id: str = "sdk_caller",
         actor_role: str = "worker",
-        delegation_chain: Optional[List[str]] = None,
-        citations: Optional[List[str]] = None,
+        delegation_chain: list[str] | None = None,
+        citations: list[str] | None = None,
     ) -> EvaluationVerdict:
         """Synchronous wrapper for evaluate."""
         try:

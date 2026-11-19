@@ -383,3 +383,4 @@ export const KillSwitchView: React.FC<KillSwitchViewProps> = ({ tenantId }) => {
     </div>
   );
 };
+

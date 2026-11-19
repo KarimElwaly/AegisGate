@@ -1,16 +1,17 @@
-from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException, Query
+
 from core.hitl.engine import get_hitl_engine
 from core.hitl.schemas import ApprovalDecisionRequest, ApprovalTicketResponse
 
 router = APIRouter(prefix="/v1/approvals", tags=["Human-in-the-Loop Approvals"])
 
 
-@router.get("", response_model=List[ApprovalTicketResponse])
+@router.get("", response_model=list[ApprovalTicketResponse])
 async def list_approvals(
     tenant_id: str = Query(default="default", description="Tenant ID"),
-    status: Optional[str] = Query(default=None, description="Filter by status (pending, approved, rejected, expired)"),
-) -> List[ApprovalTicketResponse]:
+    status: str | None = Query(default=None, description="Filter by status (pending, approved, rejected, expired)"),
+) -> list[ApprovalTicketResponse]:
     """Lists approval tickets for a tenant."""
     engine = get_hitl_engine()
     return await engine.list_tickets(tenant_id=tenant_id, status=status)
@@ -44,4 +45,5 @@ async def decide_approval(
     except PermissionError as pe:
         raise HTTPException(status_code=403, detail=str(pe))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Internal decision error: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Internal decision error: {exc!s}")
+

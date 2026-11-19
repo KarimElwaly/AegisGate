@@ -1,7 +1,9 @@
 import json
-from typing import Any, Dict, Optional
+from typing import Any
+
 import jsonschema
 from pydantic import BaseModel, ConfigDict, Field
+
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 
@@ -12,7 +14,7 @@ class JsonSchemaScannerConfig(BaseModel):
     enabled: bool = True
     action_on_error: str = "block"  # "block" | "flag"
     target_field: str = "auto"  # "output_payload" | "parameters" | "auto"
-    schema_definition: Dict[str, Any] = Field(default_factory=dict, alias="expected_schema")
+    schema_definition: dict[str, Any] = Field(default_factory=dict, alias="expected_schema")
 
 
 class JsonSchemaScanner(BaseScanner):
@@ -92,5 +94,5 @@ class JsonSchemaScanner(BaseScanner):
                 status="error",
                 score=0.5,
                 details={"error": str(e)},
-                message=f"JSON Schema validator error: {str(e)}",
+                message=f"JSON Schema validator error: {e!s}",
             )

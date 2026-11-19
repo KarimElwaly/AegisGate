@@ -1,12 +1,13 @@
-import asyncio
 import functools
 import inspect
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
+
 from core.schemas.common import DecisionEnum, StageEnum
 from sdks.python.aegisgate.client import AegisClient
 from sdks.python.aegisgate.exceptions import PolicyViolationError
 
-_global_client: Optional[AegisClient] = None
+_global_client: AegisClient | None = None
 
 
 def get_default_sdk_client() -> AegisClient:
@@ -17,8 +18,8 @@ def get_default_sdk_client() -> AegisClient:
 
 
 def governed_tool(
-    name: Optional[str] = None,
-    client: Optional[AegisClient] = None,
+    name: str | None = None,
+    client: AegisClient | None = None,
     fail_open: bool = False,
 ):
     """Decorator for automatic pre-call governance and post-call output scanning of tools."""
@@ -108,7 +109,7 @@ def governed_tool(
 
 
 def governed_llm(
-    client: Optional[AegisClient] = None,
+    client: AegisClient | None = None,
     fail_open: bool = False,
 ):
     """Decorator to govern raw LLM caller functions."""
@@ -164,3 +165,4 @@ def governed_llm(
             return sync_wrapper
 
     return decorator
+

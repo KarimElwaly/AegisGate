@@ -1,4 +1,6 @@
 import pytest
+
+from core.schemas.events import ContentModel, EvaluationRequest
 from plugins.scanners.tier2_local_ml.onnx_classifier import (
     ONNXClassifierConfig,
     ONNXInjectionClassifier,
@@ -7,7 +9,6 @@ from plugins.scanners.tier3_llm_judge.judge_scanner import (
     LLMJudgeConfig,
     LLMJudgeScanner,
 )
-from core.schemas.events import ContentModel, EvaluationRequest
 
 
 @pytest.mark.asyncio
@@ -67,3 +68,4 @@ async def test_tier3_llm_judge_scanner():
     res_bad = await judge.scan(req_bad, {}, cfg_sync)
     assert res_bad.status == "block"
     assert res_bad.score >= 0.75
+
