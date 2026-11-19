@@ -3,11 +3,15 @@ import time
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 from core.config import get_settings
+from core.governance.budgets import get_budget_manager
+from core.governance.delegation import DelegationPolicyConfig, get_delegation_validator
+from core.governance.kill_switch import get_kill_switch_service
+from core.governance.loop_detector import get_loop_detector
 from core.logger import get_logger
 from core.policy_engine.yaml_engine import get_yaml_policy_engine
 from core.registry.interfaces import BaseScanner, DefaultPluginConfig, ScannerResult
 from core.registry.registry import PluginRegistry, get_plugin_registry
-from core.schemas.common import DecisionEnum, EffectiveModeEnum
+from core.schemas.common import DecisionEnum, EffectiveModeEnum, SeverityEnum
 from core.schemas.events import EvaluationRequest
 from core.schemas.policy import PolicyPackDefinition
 from core.schemas.verdicts import (
@@ -23,8 +27,9 @@ logger = get_logger("core.pipeline")
 
 class PipelineOrchestrator:
     """Tiered Pipeline Orchestrator.
-    Executes parallel scanner tiers, enforces timeouts, short-circuits on critical blocks,
-    and coordinates policy engine evaluation without hardcoding domain logic.
+    Integrates sub-millisecond kill switches, delegation chain validation,
+    atomic Redis Lua budgets, sliding-window loop detection, parallel scanner tiers,
+    and policy evaluation without hardcoding domain logic.
     """
 
     def __init__(
@@ -34,6 +39,10 @@ class PipelineOrchestrator:
     ) -> None:
         self.registry = plugin_registry or get_plugin_registry()
         self.policy_engine = policy_engine or get_yaml_policy_engine()
+        self.kill_switch = get_kill_switch_service()
+        self.budget_manager = get_budget_manager()
+        self.loop_detector = get_loop_detector()
+        self.delegation_validator = get_delegation_validator()
         self._parsed_config_cache: Dict[str, Any] = {}
 
     def _get_typed_config(self, scanner: BaseScanner, raw_config: Dict[str, Any], pack_id: str, pack_version: str) -> Any:
@@ -95,10 +104,40 @@ class PipelineOrchestrator:
     async def evaluate(self, request: EvaluationRequest) -> EvaluationVerdict:
         start_time = time.perf_counter()
 
-        # 1. Resolve Policy Pack
+        # -------------------------------------------------------------
+        # 1. SUB-MILLISECOND KILL SWITCH CHECK (CHECKED FIRST)
+        # -------------------------------------------------------------
+        is_killed, kill_scope, kill_reason = await self.kill_switch.check_kill_switches(
+            tenant_id=request.tenant_id,
+            workspace_id=request.workspace_id,
+            agent_id=request.actor.id,
+            tool_name=request.action.name if request.action else None,
+        )
+        if is_killed:
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            return EvaluationVerdict(
+                decision=DecisionEnum.DENY,
+                effective_mode=EffectiveModeEnum.ENFORCE,
+                would_have_decided=DecisionEnum.DENY,
+                risk_score=1.0,
+                triggered_rules=[
+                    TriggeredRule(
+                        rule_id="kill-switch-engaged",
+                        policy_pack="governance-kill-switch",
+                        policy_version="1.0.0",
+                        severity=SeverityEnum.CRITICAL,
+                        reason=f"Emergency Kill Switch active on scope '{kill_scope}': {kill_reason}",
+                        compliance_tags=["CIRCUIT-BREAKER", "EMERGENCY-HALT"],
+                    )
+                ],
+                latency_ms=round(latency_ms, 2),
+            )
+
+        # -------------------------------------------------------------
+        # 2. RESOLVE POLICY PACK & EFFECTIVE MODE
+        # -------------------------------------------------------------
         policy_pack = self.policy_engine.get_policy_pack(request.policy_pack_id)
         if not policy_pack:
-            # Fallback to minimal default pack
             policy_pack = PolicyPackDefinition(
                 id=request.policy_pack_id or "default",
                 name="Default Dynamic Pack",
@@ -106,7 +145,6 @@ class PipelineOrchestrator:
                 execution_mode="enforce",
             )
 
-        # 2. Determine effective mode
         if request.execution_mode_override:
             effective_mode = EffectiveModeEnum(request.execution_mode_override)
         elif policy_pack.execution_mode == "shadow":
@@ -114,7 +152,120 @@ class PipelineOrchestrator:
         else:
             effective_mode = EffectiveModeEnum.ENFORCE
 
-        # 3. Resolve context
+        # -------------------------------------------------------------
+        # 3. DELEGATION CHAIN & PRIVILEGE ESCALATION CHECK
+        # -------------------------------------------------------------
+        delegation_cfg_dict = policy_pack.budgets.get("delegation", {}) if policy_pack.budgets else {}
+        delegation_cfg = DelegationPolicyConfig(**delegation_cfg_dict)
+        is_delegation_valid, delegation_reason = self.delegation_validator.validate_delegation(
+            actor=request.actor,
+            action_name=request.action.name if request.action else "default_action",
+            config=delegation_cfg,
+        )
+        if not is_delegation_valid:
+            latency_ms = (time.perf_counter() - start_time) * 1000.0
+            return EvaluationVerdict(
+                decision=DecisionEnum.DENY if effective_mode == EffectiveModeEnum.ENFORCE else DecisionEnum.ALLOW,
+                effective_mode=effective_mode,
+                would_have_decided=DecisionEnum.DENY,
+                risk_score=0.9,
+                triggered_rules=[
+                    TriggeredRule(
+                        rule_id="delegation-privilege-escalation",
+                        policy_pack=policy_pack.id,
+                        policy_version=policy_pack.version,
+                        severity=SeverityEnum.HIGH,
+                        reason=delegation_reason or "Delegation validation failed",
+                        compliance_tags=["RBAC", "PRIVILEGE-ESCALATION"],
+                    )
+                ],
+                latency_ms=round(latency_ms, 2),
+            )
+
+        # -------------------------------------------------------------
+        # 4. SLIDING-WINDOW RUNAWAY LOOP DETECTOR
+        # -------------------------------------------------------------
+        if request.stage in ("tool_pre_call", "agent_handoff"):
+            loop_cfg = policy_pack.budgets.get("loop_detector", {}) if policy_pack.budgets else {}
+            loop_threshold = loop_cfg.get("threshold", 3)
+            loop_window = loop_cfg.get("window_seconds", 60)
+            is_loop, loop_count, call_hash = await self.loop_detector.record_and_check(
+                tenant_id=request.tenant_id,
+                session_id=request.session_id or "global",
+                actor_id=request.actor.id,
+                action_name=request.action.name if request.action else "default_action",
+                parameters=request.action.parameters or {},
+                threshold=loop_threshold,
+                window_seconds=loop_window,
+            )
+            if is_loop:
+                latency_ms = (time.perf_counter() - start_time) * 1000.0
+                return EvaluationVerdict(
+                    decision=DecisionEnum.DENY if effective_mode == EffectiveModeEnum.ENFORCE else DecisionEnum.ALLOW,
+                    effective_mode=effective_mode,
+                    would_have_decided=DecisionEnum.DENY,
+                    risk_score=0.9,
+                    triggered_rules=[
+                        TriggeredRule(
+                            rule_id="runaway-loop-circuit-breaker",
+                            policy_pack=policy_pack.id,
+                            policy_version=policy_pack.version,
+                            severity=SeverityEnum.HIGH,
+                            reason=f"Runaway loop detected: action '{request.action.name}' called {loop_count} times in {loop_window}s",
+                            compliance_tags=["LOOP-PREVENTION", "RESOURCE-EXHAUSTION"],
+                        )
+                    ],
+                    latency_ms=round(latency_ms, 2),
+                )
+
+        # -------------------------------------------------------------
+        # 5. ATOMIC BUDGET & QUOTA CHECK
+        # -------------------------------------------------------------
+        budget_snapshot = BudgetSnapshot()
+        if policy_pack.budgets:
+            budget_limits = policy_pack.budgets
+            scope_type = "session" if request.session_id else "tenant"
+            scope_id = request.session_id or request.tenant_id
+            delta_tokens = request.action.estimated_tokens if request.action else 0
+            delta_cost = request.action.estimated_cost_usd if request.action else 0.0
+            delta_tool_calls = 1 if request.stage == "tool_pre_call" else 0
+
+            is_budget_ok, budget_status, budget_snapshot = await self.budget_manager.check_and_consume(
+                tenant_id=request.tenant_id,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                delta_tokens=delta_tokens,
+                delta_cost_usd=delta_cost,
+                delta_tool_calls=delta_tool_calls,
+                max_tokens=budget_limits.get("max_tokens", 0),
+                max_cost_usd=budget_limits.get("max_cost_usd", 0.0),
+                max_tool_calls=budget_limits.get("max_tool_calls", 0),
+                max_consecutive_failures=budget_limits.get("max_consecutive_failures", 0),
+            )
+            if not is_budget_ok:
+                latency_ms = (time.perf_counter() - start_time) * 1000.0
+                return EvaluationVerdict(
+                    decision=DecisionEnum.DENY if effective_mode == EffectiveModeEnum.ENFORCE else DecisionEnum.ALLOW,
+                    effective_mode=effective_mode,
+                    would_have_decided=DecisionEnum.DENY,
+                    risk_score=0.8,
+                    budget_snapshot=budget_snapshot,
+                    triggered_rules=[
+                        TriggeredRule(
+                            rule_id="budget-quota-exceeded",
+                            policy_pack=policy_pack.id,
+                            policy_version=policy_pack.version,
+                            severity=SeverityEnum.HIGH,
+                            reason=f"Budget quota limit reached: {budget_status}",
+                            compliance_tags=["BUDGET-ENFORCEMENT", "COST-CONTROL"],
+                        )
+                    ],
+                    latency_ms=round(latency_ms, 2),
+                )
+
+        # -------------------------------------------------------------
+        # 6. CONTEXT RESOLVERS ENRICHMENT
+        # -------------------------------------------------------------
         resolved_context: Dict[str, Any] = {}
         for resolver_binding in policy_pack.resolvers:
             if not resolver_binding.enabled:
@@ -135,7 +286,9 @@ class PipelineOrchestrator:
                 except Exception as e:
                     logger.warning("Context resolver failed", name=resolver.name, error=str(e))
 
-        # 4. Filter and prepare scanners by tier
+        # -------------------------------------------------------------
+        # 7. TIERED SCANNERS EXECUTION
+        # -------------------------------------------------------------
         stage_str = request.stage.value if hasattr(request.stage, "value") else str(request.stage)
         available_scanners = self.registry.get_scanners_for_stage(stage_str)
 
@@ -158,7 +311,6 @@ class PipelineOrchestrator:
         redaction_map: Dict[str, str] = {}
         short_circuit = False
 
-        # Execute tiers sequentially (Tier 1 -> Tier 2 -> Tier 3)
         for tier in (1, 2, 3):
             scanners = tier_scanners.get(tier, [])
             if not scanners or short_circuit:
@@ -203,11 +355,12 @@ class PipelineOrchestrator:
                 if res.redaction_map and isinstance(res.redaction_map, dict):
                     redaction_map.update(res.redaction_map)
 
-                # Check Tier-1 Critical Short Circuit
                 if tier == 1 and res.status == "block":
                     short_circuit = True
 
-        # 5. Evaluate YAML Policy Rules
+        # -------------------------------------------------------------
+        # 8. POLICY RULES EVALUATION
+        # -------------------------------------------------------------
         rule_decision, risk_score, triggered_rules, rule_mutations = await self.policy_engine.evaluate(
             request=request,
             scanner_findings=all_findings,
@@ -220,7 +373,6 @@ class PipelineOrchestrator:
         if "mutated_parameters" in rule_mutations:
             mutated_parameters_map.update(rule_mutations["mutated_parameters"])
 
-        # 6. Determine final decision
         has_scanner_block = any(f.status == "block" for f in all_findings)
         if has_scanner_block and rule_decision == DecisionEnum.ALLOW:
             nominal_decision = DecisionEnum.DENY
@@ -229,11 +381,9 @@ class PipelineOrchestrator:
         else:
             nominal_decision = rule_decision
 
-        # Apply mutations if MODIFY was selected
         if (mutated_content_map or mutated_parameters_map) and nominal_decision == DecisionEnum.ALLOW:
             nominal_decision = DecisionEnum.MODIFY
 
-        # 7. Apply Shadow Mode semantics
         if effective_mode == EffectiveModeEnum.SHADOW:
             effective_decision = DecisionEnum.ALLOW
             would_have_decided = nominal_decision
@@ -241,7 +391,6 @@ class PipelineOrchestrator:
             effective_decision = nominal_decision
             would_have_decided = nominal_decision
 
-        # 8. Check for HITL ticket config if SUSPEND_FOR_APPROVAL
         approval_ticket: Optional[ApprovalTicketInfo] = None
         if nominal_decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
             approval_cfg = rule_mutations.get("approval_config", {})
@@ -264,7 +413,7 @@ class PipelineOrchestrator:
             triggered_rules=triggered_rules,
             scanner_findings=all_findings,
             resolved_context=resolved_context,
-            budget_snapshot=BudgetSnapshot(),
+            budget_snapshot=budget_snapshot,
             approval_ticket=approval_ticket,
             latency_ms=round(latency_ms, 2),
         )

@@ -3,6 +3,9 @@ from pathlib import Path
 from core.logger import get_logger
 from core.policy_engine.yaml_engine import get_yaml_policy_engine
 from core.registry.registry import get_plugin_registry
+from plugins.resolvers.http_resolver import HTTPContextResolver
+from plugins.resolvers.redis_resolver import RedisStateResolver
+from plugins.resolvers.static_resolver import StaticLookupResolver
 from plugins.scanners.tier1_deterministic.entropy_size_guard import EntropySizeGuard
 from plugins.scanners.tier1_deterministic.grounding_scanner import EvidenceGroundingScanner
 from plugins.scanners.tier1_deterministic.json_schema_scanner import JsonSchemaScanner
@@ -34,7 +37,12 @@ def bootstrap_system() -> None:
     registry.register_scanner(EvidenceGroundingScanner())
     registry.register_scanner(WebhookScanner())
 
-    # 2. Auto-load base-enterprise policy pack if present on filesystem
+    # 2. Register Built-in Context Resolvers
+    registry.register_resolver(HTTPContextResolver())
+    registry.register_resolver(RedisStateResolver())
+    registry.register_resolver(StaticLookupResolver())
+
+    # 3. Auto-load base-enterprise policy pack if present on filesystem
     base_pack_path = Path("policy_packs/base-enterprise/policy.yaml")
     if base_pack_path.exists():
         try:
