@@ -6,6 +6,8 @@ from core.config import get_settings
 from core.database import close_database
 from core.logger import configure_logging, get_logger
 from core.redis_client import close_redis_client
+from gateways.llm_proxy import llm_proxy_router
+from gateways.mcp_tool_gateway import tool_gateway_router
 from gateways.pdp_api.routes import (
     evaluate_router,
     health_router,
@@ -20,11 +22,11 @@ async def lifespan(app: FastAPI):
     # Startup
     configure_logging()
     logger = get_logger("aegisgate.startup")
-    logger.info("Bootstrapping AegisGate PDP API...")
+    logger.info("Bootstrapping AegisGate Engine & Gateways...")
     bootstrap_system()
     yield
     # Shutdown
-    logger.info("Shutting down AegisGate PDP API...")
+    logger.info("Shutting down AegisGate Engine & Gateways...")
     await close_redis_client()
     await close_database()
 
@@ -32,9 +34,9 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="AegisGate PDP API",
+        title="AegisGate Platform",
         version="0.1.0",
-        description="Sub-15ms AI Guardrails & Governance Policy Decision Point",
+        description="Sub-15ms AI Guardrails & Governance Policy Decision Point & Proxies",
         lifespan=lifespan,
     )
 
@@ -46,11 +48,16 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Core PDP & Governance APIs
     app.include_router(health_router)
     app.include_router(evaluate_router)
     app.include_router(policies_router)
     app.include_router(plugins_router)
     app.include_router(kill_switch_router)
+
+    # Integration Gateways
+    app.include_router(llm_proxy_router)
+    app.include_router(tool_gateway_router)
 
     return app
 

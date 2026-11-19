@@ -1,0 +1,13 @@
+{
+  "name": "@aegisgate/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for AegisGate AI Guardrails & Governance Platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": ["ai", "guardrails", "security", "governance"],
+  "author": "AegisGate Team",
+  "license": "Apache-2.0"
+}
