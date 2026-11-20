@@ -236,9 +236,9 @@ class HITLEngine:
         if data["status"] != "pending":
             raise ValueError(f"Cannot decide ticket in '{data['status']}' state.")
 
-        # Check approver role if roles are restricted
+        # Check approver role if roles are restricted (SuperAdmin has universal override authority)
         req_roles = data.get("required_approver_roles") or []
-        if req_roles and decision_req.approver_role not in req_roles:
+        if req_roles and decision_req.approver_role not in req_roles and decision_req.approver_role.lower() != "superadmin":
             raise PermissionError(
                 f"Approver role '{decision_req.approver_role}' is not authorized. Required: {req_roles}"
             )

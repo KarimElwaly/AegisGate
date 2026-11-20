@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { FileCode, ArrowUpRight, History, Check, Save } from 'lucide-react';
 import { PolicyPackSummary } from '../types';
+import { savePolicyPack } from '../api';
 
 interface PolicyStudioViewProps {
   packs: PolicyPackSummary[];
+  tenantId?: string;
+  onRefresh?: () => void;
 }
 
-export const PolicyStudioView: React.FC<PolicyStudioViewProps> = ({ packs }) => {
+export const PolicyStudioView: React.FC<PolicyStudioViewProps> = ({ packs, tenantId = 'default', onRefresh }) => {
   const [selectedPackId, setSelectedPackId] = useState<string>(packs[0]?.pack_id || 'soc-investigation-pack');
   const [activeTab, setActiveTab] = useState<'editor' | 'diff' | 'history'>('editor');
-  const [savedNotice, setSavedNotice] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
   const selectedPack = packs.find((p) => p.pack_id === selectedPackId) || packs[0];
 
@@ -130,11 +133,24 @@ rules:
       reason: "Indirect prompt injection detected inside untrusted log payload"`,
   };
 
-  const yamlContent = sampleYamls[selectedPackId] || sampleYamls['soc-investigation-pack'];
+  const [editableYamls, setEditableYamls] = useState<Record<string, string>>(sampleYamls);
+  const currentYaml = editableYamls[selectedPackId] || sampleYamls[selectedPackId] || sampleYamls['soc-investigation-pack'];
 
-  const handleSave = () => {
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 2500);
+  const handleYamlChange = (val: string) => {
+    setEditableYamls((prev) => ({ ...prev, [selectedPackId]: val }));
+  };
+
+  const handleSave = async (status = 'active') => {
+    try {
+      setSavedNotice('Saving...');
+      await savePolicyPack(currentYaml, tenantId, status);
+      setSavedNotice(status === 'active' ? 'Published & Hot-Reloaded' : 'Promoted to Shadow');
+      if (onRefresh) onRefresh();
+      setTimeout(() => setSavedNotice(null), 3000);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Save failed');
+      setSavedNotice(null);
+    }
   };
 
   return (
@@ -152,13 +168,16 @@ rules:
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleSave}
+            onClick={() => handleSave('active')}
             className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold shadow transition-colors"
           >
             {savedNotice ? <Check className="w-4 h-4 text-emerald-200" /> : <Save className="w-4 h-4" />}
-            <span>{savedNotice ? 'Published & Hot-Reloaded' : 'Save & Publish'}</span>
+            <span>{savedNotice || 'Save & Publish'}</span>
           </button>
-          <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors">
+          <button
+            onClick={() => handleSave('shadow')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
+          >
             <ArrowUpRight className="w-4 h-4 text-amber-400" />
             <span>Promote to Shadow</span>
           </button>
@@ -245,8 +264,8 @@ rules:
           <div className="p-4 flex-1">
             {activeTab === 'editor' && (
               <textarea
-                value={yamlContent}
-                readOnly
+                value={currentYaml}
+                onChange={(e) => handleYamlChange(e.target.value)}
                 className="w-full h-[460px] bg-slate-950 p-4 rounded-lg font-mono text-xs text-brand-300 leading-relaxed border border-slate-800 focus:outline-none resize-none selection:bg-brand-500 selection:text-white"
                 spellCheck={false}
               />

@@ -133,4 +133,13 @@
 - **E2E System Verification Suite:** 12/12 real-world enterprise production workflows verified in `scripts/verify_system.py` (100% success)
 - **Control Plane UI:** Clean compilation with TypeScript strict typecheck & Vite build (`225.68 kB` production bundle)
 - **TypeScript SDK:** Clean compilation with `tsc --noEmit`
+- **Control Plane UI & Backend Live Integration:**
+  - Automated integration test suite (`scripts/test_ui_backend_integration.mjs`) verified 100% pass across all 5 user workflows:
+    1. Navigation & Overview metrics
+    2. Kill Switch tripwire (engages PDP DENY and disengages back to ALLOW)
+    3. HITL Decision Room approval with parameter override and decision note persistence
+    4. Policy Pack Studio live YAML save, publish, and hot-reload via `POST /v1/policies`
+    5. Forensic Audit Ledger cryptographic hash chain continuity verification & Replay Simulator
+  - Headless browser verification via Playwright and Chrome DevTools subagent: verified zero visual bugs, 0 console errors, clean status badges (`APPROVED`, `EXPIRED`, `PENDING`), and accurate queue counts.
+  - Reconfigured Vite dashboard to port `3088` and PDP API to port `8088` to eliminate local port collisions with external systems.
 - **Architectural Rules:** Strictly enforced (zero domain code in `core/`, zero imports from `plugins/` or `policy_packs/` in `core/pipeline/`, Alembic migrations only)

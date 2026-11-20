@@ -84,7 +84,7 @@ export const App: React.FC = () => {
         <main className="flex-1 overflow-y-auto p-6 bg-slate-950/60">
           <div className="max-w-7xl mx-auto">
             {currentTab === 'overview' && <OverviewView kpis={kpis} tenantId={tenantId} />}
-            {currentTab === 'policies' && <PolicyStudioView packs={packs} />}
+            {currentTab === 'policies' && <PolicyStudioView packs={packs} tenantId={tenantId} onRefresh={loadData} />}
             {currentTab === 'plugins' && <PluginRegistryView plugins={plugins} />}
             {currentTab === 'hitl' && (
               <HitlRoomView

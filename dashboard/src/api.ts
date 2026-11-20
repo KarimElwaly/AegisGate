@@ -91,6 +91,27 @@ export async function fetchPolicyPacks(tenantId: string): Promise<PolicyPackSumm
   ];
 }
 
+export async function savePolicyPack(
+  yamlContent: string,
+  tenantId = 'default',
+  status = 'active'
+): Promise<{ status: string; pack_id: string; version: string }> {
+  const res = await fetch(`${BASE_URL}/v1/policies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      yaml_content: yamlContent,
+      tenant_id: tenantId,
+      status,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to save policy pack');
+  }
+  return await res.json();
+}
+
 export async function fetchPluginCatalog(): Promise<Record<string, PluginItem[]>> {
   try {
     const res = await fetch(`${BASE_URL}/v1/plugins/catalog`);
