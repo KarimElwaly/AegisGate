@@ -105,6 +105,7 @@ async def list_policies(
     tenant_id: str = "default",
     status: str | None = None,
     db: AsyncSession = Depends(get_db_session),
+    engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
 ) -> list[dict[str, Any]]:
     """List policy packs for a given tenant."""
     query = select(PolicyPackRecord).where(PolicyPackRecord.tenant_id == tenant_id)
@@ -114,6 +115,24 @@ async def list_policies(
 
     result = await db.execute(query)
     records = result.scalars().all()
+
+    if not records:
+        # Fallback to in-memory loaded reference packs from engine
+        return [
+            {
+                "id": p.id,
+                "tenant_id": tenant_id,
+                "workspace_id": "default",
+                "pack_id": p.id,
+                "version": p.version,
+                "name": p.name,
+                "description": p.description,
+                "status": "active",
+                "created_at": None,
+                "updated_at": None,
+            }
+            for p in engine._policy_packs.values()
+        ]
 
     return [
         {

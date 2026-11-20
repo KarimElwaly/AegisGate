@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # General
     AEGIS_ENV: Literal["dev", "staging", "prod", "test"] = "dev"
     AEGIS_HOST: str = "0.0.0.0"
-    AEGIS_PORT: int = 8000
+    AEGIS_PORT: int = 8088
     AEGIS_LOG_LEVEL: str = "INFO"
 
     # Security

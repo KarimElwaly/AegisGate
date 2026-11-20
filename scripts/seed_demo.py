@@ -147,16 +147,16 @@ async def run_async_bootstrap():
     print("\n" + "=" * 70)
     print("   BOOTSTRAP COMPLETE - SYSTEM IS PRODUCTION READY")
     print("=" * 70)
-    print(" Control Plane Dashboard: http://localhost:3000")
-    print(" Engine Health Check:     http://localhost:8000/healthz")
-    print(" Prometheus Metrics:      http://localhost:8000/metrics")
+    print(" Control Plane Dashboard: http://localhost:3088")
+    print(" Engine Health Check:     http://localhost:8088/healthz")
+    print(" Prometheus Metrics:      http://localhost:8088/metrics")
     print(f" SuperAdmin User:         {creds['admin_email']}")
     print(f" SuperAdmin Password:     {creds['admin_password']}")
     print(f" Scoped API Key:          {creds['api_key']}")
     print("-" * 70)
     print(" Quick PDP Evaluation Test (cURL):")
     print(f"""
-curl -X POST http://localhost:8000/v1/evaluate \\
+curl -X POST http://localhost:8088/v1/evaluate \\
   -H "Content-Type: application/json" \\
   -H "X-Aegis-Tenant-Id: {creds['tenant_id']}" \\
   -d '{{
