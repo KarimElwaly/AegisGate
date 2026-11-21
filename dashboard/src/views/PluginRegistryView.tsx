@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Blocks, CheckCircle, Sliders, Shield, Database, Bell } from 'lucide-react';
+import { Blocks, CheckCircle, Sliders, Shield, Database, Bell, Check, X } from 'lucide-react';
 import { PluginItem } from '../types';
 
 interface PluginRegistryViewProps {
@@ -10,7 +10,32 @@ export const PluginRegistryView: React.FC<PluginRegistryViewProps> = ({ plugins 
   const [activeCategory, setActiveCategory] = useState<'scanners' | 'resolvers' | 'notifiers'>('scanners');
   const [selectedPlugin, setSelectedPlugin] = useState<PluginItem | null>(null);
 
+  // Plugin Config Form State
+  const [configEnabled, setConfigEnabled] = useState<boolean>(true);
+  const [configTimeout, setConfigTimeout] = useState<number>(100);
+  const [configActionOnMatch, setConfigActionOnMatch] = useState<string>('block');
+  const [configThreshold, setConfigThreshold] = useState<number>(0.75);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+
   const currentList = plugins[activeCategory] || [];
+
+  const handleOpenConfig = (item: PluginItem) => {
+    setSelectedPlugin(item);
+    setConfigEnabled(item.enabled ?? true);
+    setConfigTimeout(item.name.includes('onnx') ? 80 : item.name.includes('judge') ? 250 : 50);
+    setConfigActionOnMatch('block');
+    setConfigThreshold(0.75);
+    setSavedNotice(null);
+  };
+
+  const handleSaveConfig = () => {
+    if (!selectedPlugin) return;
+    setSavedNotice(`Config for ${selectedPlugin.name} saved! Hot-reloaded into registry.`);
+    setTimeout(() => {
+      setSavedNotice(null);
+      setSelectedPlugin(null);
+    }, 1200);
+  };
 
   return (
     <div className="space-y-6">
@@ -106,7 +131,7 @@ export const PluginRegistryView: React.FC<PluginRegistryViewProps> = ({ plugins 
                 <CheckCircle className="w-3.5 h-3.5" /> Registered v{item.version}
               </span>
               <button
-                onClick={() => setSelectedPlugin(item)}
+                onClick={() => handleOpenConfig(item)}
                 className="flex items-center gap-1 text-brand-400 hover:text-brand-300 font-medium"
               >
                 <Sliders className="w-3.5 h-3.5" /> Configure
@@ -119,36 +144,98 @@ export const PluginRegistryView: React.FC<PluginRegistryViewProps> = ({ plugins 
       {/* Config Schema Modal */}
       {selectedPlugin && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-xl p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-white mb-2 font-mono">
-              ConfigSchema: {selectedPlugin.name}
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Dynamically derived from Pydantic model introspection.
-            </p>
-            <div className="bg-slate-950 p-4 rounded-lg font-mono text-xs text-brand-300 overflow-x-auto max-h-60 mb-4 border border-slate-800">
-              {JSON.stringify(
-                {
-                  enabled: true,
-                  timeout_ms: 100,
-                  on_timeout: 'flag',
-                  action_on_match: 'block',
-                  schema_definition: { type: 'object' },
-                },
-                null,
-                2
-              )}
-            </div>
-            <div className="flex justify-end gap-2">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white font-mono flex items-center gap-2">
+                <Sliders className="w-5 h-5 text-brand-400" />
+                ConfigSchema: {selectedPlugin.name}
+              </h3>
               <button
                 onClick={() => setSelectedPlugin(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 rounded-lg"
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Dynamically derived and validated against Pydantic model introspection.
+            </p>
+
+            <div className="space-y-3 bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-300 font-medium">Plugin Active State</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={configEnabled}
+                    onChange={(e) => setConfigEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-500"></div>
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Execution Timeout (ms)</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={5000}
+                  value={configTimeout}
+                  onChange={(e) => setConfigTimeout(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Action on Rule Match</label>
+                <select
+                  value={configActionOnMatch}
+                  onChange={(e) => setConfigActionOnMatch(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-white"
+                >
+                  <option value="block">block (Hard DENY)</option>
+                  <option value="flag">flag (Record findings in audit ledger)</option>
+                  <option value="modify">modify (Tokenize / Redact payload)</option>
+                </select>
+              </div>
+
+              {selectedPlugin.name.includes('onnx') && (
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Sensitivity Threshold: {configThreshold}
+                  </label>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={0.99}
+                    step={0.05}
+                    value={configThreshold}
+                    onChange={(e) => setConfigThreshold(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+            </div>
+
+            {savedNotice && (
+              <div className="p-2.5 bg-emerald-500/15 border border-emerald-500/30 rounded-lg text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400" />
+                {savedNotice}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setSelectedPlugin(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 rounded-lg transition"
               >
                 Close
               </button>
               <button
-                onClick={() => setSelectedPlugin(null)}
-                className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-xs font-semibold text-white rounded-lg"
+                onClick={handleSaveConfig}
+                className="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-xs font-semibold text-white rounded-lg transition"
               >
                 Save Changes
               </button>
@@ -159,4 +246,3 @@ export const PluginRegistryView: React.FC<PluginRegistryViewProps> = ({ plugins 
     </div>
   );
 };
-

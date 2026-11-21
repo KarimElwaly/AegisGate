@@ -112,6 +112,41 @@ export async function savePolicyPack(
   return await res.json();
 }
 
+export async function rollbackPolicyPack(
+  packId: string,
+  targetVersion: string,
+  tenantId = 'default'
+): Promise<{ status: string; pack_id: string; active_version: string }> {
+  const res = await fetch(`${BASE_URL}/v1/policies/${packId}/rollback?tenant_id=${tenantId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_version: targetVersion }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Rollback failed');
+  }
+  return await res.json();
+}
+
+export async function promotePolicyPack(
+  packId: string,
+  version: string,
+  targetStatus = 'active',
+  tenantId = 'default'
+): Promise<{ status: string; pack_id: string; version: string; new_status: string }> {
+  const res = await fetch(`${BASE_URL}/v1/policies/${packId}/promote?tenant_id=${tenantId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version, target_status: targetStatus }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Promote failed');
+  }
+  return await res.json();
+}
+
 export async function fetchPluginCatalog(): Promise<Record<string, PluginItem[]>> {
   try {
     const res = await fetch(`${BASE_URL}/v1/plugins/catalog`);
