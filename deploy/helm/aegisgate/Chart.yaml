@@ -1,0 +1,17 @@
+apiVersion: v2
+name: aegisgate
+description: Commercial Helm chart for AegisGate AI Guardrails, Real-Time Governance PDP & Proxies
+type: application
+version: 0.1.0
+appVersion: "3.1.0"
+keywords:
+  - ai-guardrails
+  - governance
+  - pdp
+  - llm-proxy
+  - mcp-gateway
+home: https://github.com/aegisgate/aegisgate
+maintainers:
+  - name: AegisGate Core Team
+    email: security@aegisgate.internal
+

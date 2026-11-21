@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-config
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+data:
+  AEGIS_ENV: {{ .Values.engine.env.AEGIS_ENV | quote }}
+  AEGIS_PORT: {{ .Values.engine.env.AEGIS_PORT | quote }}
+  PII_VAULT_TTL_SECONDS: {{ .Values.engine.env.PII_VAULT_TTL_SECONDS | quote }}
+  PROMETHEUS_METRICS_ENABLED: {{ .Values.engine.env.PROMETHEUS_METRICS_ENABLED | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-secrets
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  DATABASE_URL: {{ .Values.engine.env.DATABASE_URL | quote }}
+  REDIS_URL: {{ .Values.engine.env.REDIS_URL | quote }}
+  AEGIS_SECRET_KEY: "change-me-in-production-cluster-secret"
+

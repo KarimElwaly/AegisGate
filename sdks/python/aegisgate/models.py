@@ -18,6 +18,8 @@ class StageEnum(str, Enum):
     TOOL_PRE_CALL = "tool_pre_call"
     TOOL_POST_CALL = "tool_post_call"
     AGENT_HANDOFF = "agent_handoff"
+    MEMORY_WRITE = "memory_write"
+    RAG_RETRIEVAL = "rag_retrieval"
 
 
 class ActorModel(BaseModel):

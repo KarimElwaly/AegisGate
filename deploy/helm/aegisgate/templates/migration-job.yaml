@@ -1,0 +1,30 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-migration
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "aegisgate.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: alembic-migration
+          image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag }}"
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "aegisgate.fullname" . }}-config
+            - secretRef:
+                name: {{ include "aegisgate.fullname" . }}-secrets
+{{- end }}
+

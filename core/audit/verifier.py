@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.audit.ledger import GENESIS_HASH, canonical_json, compute_sha256, format_iso_utc
+from core.crypto.kms import get_key_provider
 from core.database import db_context
 from core.logger import get_logger
 from core.models.audit import AuditRecord
@@ -144,6 +145,19 @@ class AuditVerifier:
                     break
 
                 expected_prev_hash = rec.record_hash
+
+                # 3. Check KMS HMAC signature if present
+                if rec.kms_signature:
+                    key_provider = get_key_provider()
+                    if not key_provider.verify_hmac(rec.record_hash, rec.kms_signature):
+                        tampered_ids.append(rec.id)
+                        logger.error(
+                            "audit_kms_signature_invalid",
+                            record_id=rec.id,
+                            record_hash=rec.record_hash,
+                            index=idx,
+                        )
+                        break
 
             if tampered_ids:
                 return AuditVerificationResult(

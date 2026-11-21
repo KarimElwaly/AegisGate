@@ -1,0 +1,72 @@
+id: pci-dss-pack
+name: PCI DSS Financial Cardholder Data Protection Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Turnkey PCI-DSS v4.0 compliance policy pack enforcing strict Primary Account Number (PAN) blocking, payment authorization dual approvals, and secret leakage prevention.
+
+scanners:
+  - name: secrets_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      action_on_detect: block
+
+  - name: ner_pii_scanner
+    enabled: true
+    tier: 2
+    timeout_ms: 150
+    on_timeout: flag
+    config:
+      target_entities: ["FINANCIAL_IDENTIFIER"]
+      action_on_match: block
+
+  - name: prompt_leakage_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      max_leakage_ratio: 0.60
+      action_on_leak: block
+
+resolvers: []
+budgets:
+  max_tokens: 30000
+  max_tool_calls: 25
+
+rules:
+  # Requirement 3: Protect Stored Cardholder Data (PAN block in outputs)
+  - id: pci-dss-req3-block-pan-in-output
+    name: Block Cardholder Primary Account Numbers in Model Outputs
+    priority: 1
+    stages: ["llm_output"]
+    condition:
+      field: "scanner_findings.ner_pii_scanner.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: critical
+      reason: "PCI DSS Requirement 3: Cardholder data (PAN) must not be rendered in plaintext output"
+      compliance_tags: ["PCI-DSS-REQ-3", "PAN-PROTECTION"]
+
+  # Requirement 6/8: Dual Approval for Payment Processing Tools
+  - id: pci-dss-req6-payment-execution-dual-approval
+    name: Require Dual Approval for High-Value Fund Transfers & Card Charges
+    priority: 5
+    stages: ["tool_pre_call"]
+    condition:
+      field: action.name
+      operator: in
+      value: ["charge_card", "refund_transaction", "update_card_token", "wire_funds"]
+    action:
+      decision: SUSPEND_FOR_APPROVAL
+      severity: critical
+      reason: "PCI DSS Requirement 6: Financial transactions require four-eyes dual approval"
+      compliance_tags: ["PCI-DSS-REQ-6", "DUAL-APPROVAL", "HITL-MANDATORY"]
+      required_approvals: 2
+      required_approver_roles: ["finance_lead", "security_officer"]
+

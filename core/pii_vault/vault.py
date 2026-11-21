@@ -1,6 +1,8 @@
+import json
 import re
 
 from core.config import get_settings
+from core.crypto.kms import get_key_provider
 from core.logger import get_logger
 from core.redis_client import get_redis_client
 
@@ -52,9 +54,12 @@ class PiiVault:
             token = f"<AEGIS_{entity_type}_{count}>"
             reverse_key = f"{session_key}:rev:{token}"
 
+            # Encrypt original value at rest using KMS KeyProvider
+            encrypted_val = json.dumps(get_key_provider().encrypt_dek(original_value))
+
             pipe = redis.pipeline()
             pipe.setex(forward_key, self.ttl, token)
-            pipe.setex(reverse_key, self.ttl, original_value)
+            pipe.setex(reverse_key, self.ttl, encrypted_val)
             # Store in session token index set
             pipe.sadd(f"{session_key}:tokens", token)
             pipe.expire(f"{session_key}:tokens", self.ttl)
@@ -76,7 +81,9 @@ class PiiVault:
             self._local_counts[sess][entity_type] = cnt
             token = f"<AEGIS_{entity_type}_{cnt}>"
             self._local_forward[sess][original_value] = token
-            self._local_reverse[sess][token] = original_value
+            # Encrypt in memory as well
+            encrypted_val = json.dumps(get_key_provider().encrypt_dek(original_value))
+            self._local_reverse[sess][token] = encrypted_val
             return token
 
     async def rehydrate(
@@ -98,18 +105,22 @@ class PiiVault:
 
         try:
             redis = await get_redis_client()
+            key_provider = get_key_provider()
             for token_type in set(tokens_in_text):
                 token = f"<AEGIS_{token_type}>"
                 reverse_key = f"{session_key}:rev:{token}"
-                orig = await redis.get(reverse_key)
-                if orig:
+                orig_encrypted = await redis.get(reverse_key)
+                if orig_encrypted:
+                    orig = key_provider.decrypt_dek(str(orig_encrypted))
                     result = result.replace(token, str(orig))
             return result
         except Exception as e:
             logger.warning("Redis rehydration error, falling back to memory", error=str(e))
             sess = f"{tenant_id}:{session_id or 'global'}"
             rev_map = self._local_reverse.get(sess, {})
-            for token, orig in rev_map.items():
+            key_provider = get_key_provider()
+            for token, orig_encrypted in rev_map.items():
+                orig = key_provider.decrypt_dek(orig_encrypted)
                 result = result.replace(token, orig)
             return result
 
@@ -120,18 +131,22 @@ class PiiVault:
     ) -> dict[str, str]:
         """Return dict of token -> original_value for the session."""
         session_key = self._get_session_key(tenant_id, session_id)
+        key_provider = get_key_provider()
         try:
             redis = await get_redis_client()
             tokens = await redis.smembers(f"{session_key}:tokens")
             mappings = {}
             for token in tokens:
-                orig = await redis.get(f"{session_key}:rev:{token}")
-                if orig:
-                    mappings[token] = str(orig)
+                orig_encrypted = await redis.get(f"{session_key}:rev:{token}")
+                if orig_encrypted:
+                    mappings[token] = key_provider.decrypt_dek(str(orig_encrypted))
             return mappings
         except Exception:
             sess = f"{tenant_id}:{session_id or 'global'}"
-            return dict(self._local_reverse.get(sess, {}))
+            return {
+                tok: key_provider.decrypt_dek(val)
+                for tok, val in self._local_reverse.get(sess, {}).items()
+            }
 
 
 default_pii_vault = PiiVault()

@@ -1,0 +1,79 @@
+global:
+  environment: production
+  imagePullSecrets: []
+
+engine:
+  replicaCount: 3
+  image:
+    repository: aegisgate/engine
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2048Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+  env:
+    AEGIS_ENV: prod
+    AEGIS_PORT: 8000
+    DATABASE_URL: "postgresql+asyncpg://aegis:aegis_password@postgres:5432/aegisgate"
+    REDIS_URL: "redis://:redis_password@redis:6379/0"
+    PII_VAULT_TTL_SECONDS: "3600"
+    PROMETHEUS_METRICS_ENABLED: "true"
+
+dashboard:
+  replicaCount: 2
+  image:
+    repository: aegisgate/dashboard
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  hosts:
+    - host: aegisgate.internal
+      paths:
+        - path: /
+          pathType: Prefix
+          service: dashboard
+        - path: /v1
+          pathType: Prefix
+          service: engine
+        - path: /proxy
+          pathType: Prefix
+          service: engine
+  tls: []
+
+migration:
+  enabled: true
+

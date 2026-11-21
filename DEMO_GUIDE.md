@@ -41,6 +41,8 @@ python scripts/demo_showcase.py --live
 │  6. SOC Pack: Domain Controller Block│ 14. Stateful Session Taint Chains    │
 │  7. SOC Pack: Single & Dual HITL     │ 15. Hierarchical RAG ACL Clearance   │
 │  8. Multi-Agent Runaway Loop Breaker │ 16. Shadow AI & Asset Auto-Discovery │
+│                                      │ 17. Universal Anthropic/Gemini Proxy │
+│                                      │ 18. Regulatory Compliance Reporting  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -396,6 +398,14 @@ curl -X PATCH http://127.0.0.1:8088/v1/discovery/assets/ast-001 \
   -d '{"governance_status": "governed", "risk_level": "low"}'
 ```
 
+### Use Case 17: Universal Multi-Provider Proxies — Native Anthropic & Gemini Gateways
+- **Scenario:** An organization standardizes on Anthropic Claude 3.5 Sonnet and Google Gemini 1.5 Pro without wanting to modify client library integrations.
+- **Defense Mechanism:** Intercepts traffic at `/proxy/anthropic/v1/messages` and `/proxy/gemini/v1beta/models/{model}:generateContent`. Protocol translators canonicalize requests into `EvaluationRequest` events, execute PII tokenization and security guardrails, forward upstream, and translate responses (and SSE stream chunks) back to native client format while reconciling exact usage tokens.
+
+### Use Case 18: Turnkey Regulatory Compliance Evidence Packages
+- **Scenario:** Compliance and legal teams require mathematical proof of AI safety controls for EU AI Act, HIPAA, PCI DSS, or NIST AI RMF audits.
+- **Defense Mechanism:** `GET /v1/audit/compliance-report?framework={eu-ai-act|hipaa|pci-dss|nist-ai-rmf}` generates an audit evidence package containing active policy pack versions, rule enforcement tallies, HITL approver records, Shadow AI exceptions, and a live cryptographic hash-chain integrity certificate.
+
 ---
 
 ## 3. Live Control Plane UI Demonstration Guide (`:3088`)
@@ -431,6 +441,7 @@ Open **`http://localhost:3088`** in your browser to demonstrate the visual contr
    - Click **Verify Ledger Continuity** to trigger cryptographic chain traversal and display the green `Intact` badge.
    - Click **Export JSONL / CSV** to download compliance records.
    - Click **Open Replay Simulator** and run historical replay simulations.
+   - Click one of the **1-Click Compliance Report** buttons (EU AI Act, HIPAA, PCI DSS, NIST AI RMF) to export signed regulatory evidence reports.
 
 ---
 

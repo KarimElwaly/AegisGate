@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.crypto.kms import get_key_provider
 from core.database import db_context
 from core.logger import get_logger
 from core.models.audit import AuditRecord
@@ -131,6 +132,7 @@ class AuditLedger:
 
             canonical_payload_str = canonical_json(record_payload)
             record_hash = compute_sha256(prev_hash + canonical_payload_str)
+            kms_sig = get_key_provider().sign_hmac(record_hash)
 
             record = AuditRecord(
                 id=record_id,
@@ -153,6 +155,7 @@ class AuditLedger:
                 payload_hash=payload_hash,
                 prev_hash=prev_hash,
                 record_hash=record_hash,
+                kms_signature=kms_sig,
                 created_at=created_at,
             )
             s.add(record)

@@ -59,7 +59,7 @@ class AegisClient:
 
     async def evaluate(
         self,
-        stage: StageEnum | str,
+        stage: StageEnum | str | EvaluationRequest,
         action_name: str = "default_action",
         parameters: dict[str, Any] | None = None,
         trusted_instructions: str | None = None,
@@ -71,25 +71,28 @@ class AegisClient:
         citations: list[str] | None = None,
     ) -> EvaluationVerdict:
         """Async policy evaluation request."""
-        session_id = current_session_id.get()
-        trace_id = current_trace_id.get() or str(uuid.uuid4())
+        if isinstance(stage, EvaluationRequest) or (hasattr(stage, "stage") and hasattr(stage, "model_dump")):
+            req = stage
+        else:
+            session_id = current_session_id.get()
+            trace_id = current_trace_id.get() or str(uuid.uuid4())
 
-        req = EvaluationRequest(
-            tenant_id=self.tenant_id,
-            workspace_id=self.workspace_id,
-            policy_pack_id=self.policy_pack_id,
-            session_id=session_id,
-            trace_id=trace_id,
-            stage=StageEnum(stage) if isinstance(stage, str) else stage,
-            actor=ActorModel(id=actor_id, role=actor_role, delegation_chain=delegation_chain or []),
-            action=ActionModel(name=action_name, parameters=parameters or {}),
-            content=ContentModel(
-                trusted_instructions=trusted_instructions,
-                untrusted_data=untrusted_data,
-                output_payload=output_payload,
-                citations=citations or [],
-            ),
-        )
+            req = EvaluationRequest(
+                tenant_id=self.tenant_id,
+                workspace_id=self.workspace_id,
+                policy_pack_id=self.policy_pack_id,
+                session_id=session_id,
+                trace_id=trace_id,
+                stage=StageEnum(stage) if isinstance(stage, str) else stage,
+                actor=ActorModel(id=actor_id, role=actor_role, delegation_chain=delegation_chain or []),
+                action=ActionModel(name=action_name, parameters=parameters or {}),
+                content=ContentModel(
+                    trusted_instructions=trusted_instructions,
+                    untrusted_data=untrusted_data,
+                    output_payload=output_payload,
+                    citations=citations or [],
+                ),
+            )
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
@@ -109,7 +112,7 @@ class AegisClient:
 
     def evaluate_sync(
         self,
-        stage: StageEnum | str,
+        stage: StageEnum | str | EvaluationRequest,
         action_name: str = "default_action",
         parameters: dict[str, Any] | None = None,
         trusted_instructions: str | None = None,

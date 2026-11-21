@@ -1,0 +1,81 @@
+id: hipaa-pack
+name: HIPAA Healthcare Data Privacy Policy Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Turnkey HIPAA compliance policy pack enforcing Protected Health Information (PHI) reversible tokenization, zero external exfiltration, and sovereignty boundaries.
+
+scanners:
+  - name: pii_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      enable_tokenization: true
+      action_on_detect: flag
+
+  - name: ner_pii_scanner
+    enabled: true
+    tier: 2
+    timeout_ms: 150
+    on_timeout: flag
+    config:
+      target_entities: ["EMAIL", "PHONE_NUMBER", "SSN", "PASSPORT", "PERSON_NAME_CANDIDATE"]
+      tokenize_entities: true
+      action_on_match: flag
+
+  - name: prompt_leakage_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      max_leakage_ratio: 0.65
+      action_on_leak: block
+
+resolvers: []
+budgets:
+  max_tokens: 60000
+  max_tool_calls: 40
+
+rules:
+  # PHI Sovereignty Rule: Route to local-only when PHI present
+  - id: hipaa-phi-sovereignty-routing
+    name: Enforce On-Premises Sovereign Processing for PHI
+    priority: 3
+    stages: ["llm_input"]
+    condition:
+      any:
+        - field: "scanner_findings.pii_scanner.status"
+          operator: "eq"
+          value: "flag"
+        - field: "scanner_findings.ner_pii_scanner.status"
+          operator: "eq"
+          value: "flag"
+    action:
+      decision: MODIFY
+      severity: medium
+      reason: "route_to_tier: local_only - PHI detected, ensuring zero-retention sovereign routing"
+      add_taints: ["local_only", "phi_protected"]
+      compliance_tags: ["HIPAA-PRIVACY-RULE", "HIPAA-SOVEREIGNTY"]
+
+  # External Exfiltration Block for PHI-Tainted Sessions
+  - id: hipaa-block-external-webhooks-on-phi
+    name: Block Outbound Network Calls from PHI Tainted Sessions
+    priority: 5
+    stages: ["tool_pre_call"]
+    condition:
+      all:
+        - field: "session.taints"
+          operator: "contains_any"
+          value: ["phi_protected", "confidential_pii"]
+        - field: action.name
+          operator: in
+          value: ["external_http_post", "send_email", "export_s3_bucket", "post_webhook"]
+    action:
+      decision: DENY
+      severity: critical
+      reason: "HIPAA Security Rule: Transmission of PHI to unverified external endpoints is strictly forbidden"
+      compliance_tags: ["HIPAA-SECURITY-RULE", "EXFILTRATION-PREVENTION"]
+

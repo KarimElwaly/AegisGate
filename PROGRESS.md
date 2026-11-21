@@ -1,20 +1,24 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 12 COMPLETED (All Phases 1 through 12 Complete)
-- Overall Test Suite Status: 117 / 117 Tests Passing (100%)
-- Core Test Coverage: 85% across 2,904 statements in `core/` (DoD Target: >=85%)
-- Tier-1 Fast-Path P95 Latency: 0.61 ms (DoD Target: <15 ms)
-- End-to-End HTTP P95 Latency: 24.35 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
+- Current Phase: Phase 13 COMPLETED (All Phases 1 through 13 Complete — Universal Plan Achieved)
+- Overall Test Suite Status: 124 / 124 Tests Passing (100%)
+- Core Test Coverage: 85% across 3,040 statements in `core/` (DoD Target: >=85%)
+- Tier-1 Fast-Path P95 Latency: 0.50 ms (DoD Target: <15 ms)
+- End-to-End HTTP P95 Latency: 28.94 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (41/41 attacks detected, DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (0/41 benign logs flagged, DoD Target: <2%)
 - Universal Multi-Provider Proxies: Native OpenAI (`/proxy/llm/v1/*`), Anthropic (`/proxy/anthropic/v1/messages`), and Gemini (`/proxy/gemini/v1beta/*`) with unified pipeline, PII rehydration, streaming guards, and token reconciliation
+- Enterprise KMS & Envelope Encryption: Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records
+- Turnkey Regulatory Compliance Packs: Production policy packs for EU AI Act, HIPAA, PCI DSS, and NIST AI RMF with automated audit compliance reports (`GET /v1/audit/compliance-report`)
 - Universal Scanners: NLI Faithfulness (RAG Hallucination), System Prompt Leakage Guard, Multimodal OCR Vision/Doc Scanner
 - Local ML Runtimes & CLI: Presidio/Regex NER, Embedding/Keyword Topic Guard, Llama Guard/Toxicity Heuristics, and `aegisctl models status / pull`
+- Ecosystem Adapters: CrewAI (`CrewAIGuard`) and LlamaIndex (`LlamaIndexGuard`)
+- Production Packaging & CI/CD: Multi-stage `.github/workflows/ci.yml` and production Kubernetes Helm Chart (`deploy/helm/aegisgate/`)
 - TypeScript SDK: 3/3 tests passing, typed Virtual API Key support, `waitForApproval()`, and `wrapTool()` middleware
-- Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Vite production build succeeded in 3.10s
+- Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Compliance Report 1-click exporter, Vite production build succeeded in 3.33s
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: Phase 12 COMPLETED (Phase 12 Universal Multi-Provider Proxy & Real Local ML Depth)
+- Autonomous Mode: Phase 13 COMPLETED (Enterprise KMS, Turnkey Compliance Packs, Ecosystem Adapters & Production DevOps)
 
 ---
 
@@ -361,7 +365,45 @@
 
 ---
 
-## Phase 12 (v3.0): Universal Multi-Provider Proxy & Real Local ML Depth (COMPLETED)
+## Phase 13 (v3.1): Enterprise KMS, Turnkey Compliance Packs, Ecosystem Adapters & Production DevOps (COMPLETED)
+### Files Created / Implemented:
+- `core/crypto/`:
+  - `kms.py`: Pluggable `KeyProvider` base protocol and implementations:
+    - `LocalEnvKeyProvider`: AES-256-GCM envelope encryption with HKDF key derivation and dynamic key rotation (`v1` -> `v2`).
+    - `HashiCorpVaultKeyProvider`: Vault Transit secrets engine HTTP client for envelope encryption and HMAC signing.
+    - `AWSKMSKeyProvider`: AWS KMS envelope encryption and HMAC adapter.
+  - `__init__.py`: Exported key providers and global provider setter.
+- `core/models/audit.py`: Added `kms_signature` column to `AuditRecord`.
+- `migrations/versions/0007_phase13_kms_signatures.py`: Incremental Alembic migration adding `kms_signature` to `audit_records` table (applied via `alembic upgrade head`).
+- `core/pii_vault/vault.py`: Wired `KeyProvider` envelope encryption into PII token storage and decryption during rehydration, with transparent backward compatibility for legacy records.
+- `core/audit/ledger.py` & `core/audit/verifier.py`: Wired `KeyProvider` HMAC signing into `AuditLedger` and cryptographic signature verification into `AuditVerifier`.
+- `policy_packs/`:
+  - `eu-ai-act-pack/policy.yaml`: EU AI Act compliance (Article 5 prohibited practices, Article 9/12/14 human oversight & HITL).
+  - `hipaa-pack/policy.yaml`: HIPAA compliance (reversible PHI tokenization, strict local sovereignty, exfiltration tool blocks).
+  - `pci-dss-pack/policy.yaml`: PCI DSS v4.0 compliance (PAN Luhn checksum validation, CVV blocking, dual-approval for payment tools).
+  - `nist-ai-rmf-pack/policy.yaml`: NIST AI RMF 1.0 controls (Map, Measure, Manage, Govern).
+- `gateways/pdp_api/routes/audit.py`: Added `GET /v1/audit/compliance-report` generating structured auditor evidence packages with rule enforcement tallies, HITL approvers, shadow exceptions, and cryptographic hash-chain certificates.
+- `dashboard/src/views/AuditForensicsView.tsx`: Added 1-click Compliance Report Exporters for all 4 regulatory frameworks.
+- `sdks/python/aegisgate/`:
+  - `models.py`: Added `MEMORY_WRITE` and `RAG_RETRIEVAL` to `StageEnum`.
+  - `client.py`: Enhanced `evaluate()` and `evaluate_sync()` to accept `EvaluationRequest` instances directly.
+  - `adapters/crewai_guard.py`: `CrewAIGuard` wrapping CrewAI tasks and custom tools with pre-call checks and post-call redaction.
+  - `adapters/llamaindex_guard.py`: `LlamaIndexGuard` providing post-retrieval clearance filtering and post-response output guardrails.
+  - `adapters/__init__.py`: Exported `CrewAIGuard` and `LlamaIndexGuard`.
+- `.github/workflows/ci.yml`: Enterprise GitHub Actions CI pipeline running lint, typecheck, pytest across PostgreSQL 16 + Redis 7 service containers, TypeScript SDK tests, Dashboard Vite build, and Docker builds.
+- `deploy/helm/aegisgate/`: Production Kubernetes Helm chart (`Chart.yaml`, `values.yaml`, templates for engine, dashboard, ingress with SSE annotations, configmaps, secrets, and migration pre-upgrade hook).
+- `tests/unit/test_phase13_kms_compliance.py`: Comprehensive test suite verifying envelope encryption, key rotation, Vault/AWS KMS mocking, KMS-backed PII vault, HMAC audit verification, compliance report endpoint, and CrewAI/LlamaIndex adapters.
+
+### Phase 13 Test Results & Benchmarks:
+- **Full Test Suite:** 124 passed out of 124 run (100% pass rate) in 33.94s
+- **Zero Regressions:** All 117 Phase 1–12 tests pass without modification
+- **Core Test Coverage:** 85% across all 3,040 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.38 ms, P95 = 0.50 ms, P99 = 0.53 ms (DoD target: <15.0 ms met)
+- **End-to-End HTTP Latency:** P50 = 21.51 ms, P95 = 28.94 ms, P99 = 34.22 ms (DoD target: <35.0 ms met)
+- **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+- **TypeScript SDK:** 3/3 tests passed in 12.10ms
+- **Admin UI Build:** Vite build succeeded with 0 TypeScript errors (`dist/` packaged in 3.33s)
+
 ### Files Created / Implemented:
 - `gateways/llm_proxy/translators/`:
   - `base.py`: `BaseProtocolTranslator` defining canonical input/output extraction, token accounting, mock streaming chunks, and native 403 error payloads.

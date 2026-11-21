@@ -1,0 +1,88 @@
+id: eu-ai-act-pack
+name: EU AI Act Regulatory Compliance Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Production policy pack enforcing EU AI Act Article 5 prohibited practices, Article 9 risk management, Article 12 provenance audit, and Article 14 human oversight.
+
+scanners:
+  - name: topic_guard
+    enabled: true
+    tier: 2
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      blocked_topics: ["social_scoring", "subliminal_manipulation", "realtime_biometric_categorization"]
+      action_on_violation: block
+
+  - name: nli_faithfulness_scanner
+    enabled: true
+    tier: 2
+    timeout_ms: 150
+    on_timeout: flag
+    config:
+      min_faithfulness_score: 0.60
+      action_on_hallucination: block
+
+  - name: prompt_leakage_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      max_leakage_ratio: 0.60
+      action_on_leak: block
+
+resolvers: []
+budgets:
+  max_tokens: 40000
+  max_tool_calls: 30
+
+rules:
+  # Article 5: Prohibited Practices Block
+  - id: eu-ai-act-art5-prohibited-topics
+    name: Block Article 5 Prohibited AI Practices
+    priority: 1
+    stages: ["llm_input", "llm_output"]
+    condition:
+      field: "scanner_findings.topic_guard.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Blocked under EU AI Act Article 5 Prohibited AI Practices"
+      compliance_tags: ["EU-AI-ACT-ART-5", "EU-AI-ACT-HIGH-RISK"]
+
+  # Article 14: Mandatory Human Oversight for High-Impact Autonomous Tool Calls
+  - id: eu-ai-act-art14-human-oversight
+    name: Require Human Oversight on High-Impact Critical Actions
+    priority: 5
+    stages: ["tool_pre_call"]
+    condition:
+      field: action.name
+      operator: in
+      value: ["deploy_credit_score_model", "terminate_employment", "modify_medical_record", "law_enforcement_query"]
+    action:
+      decision: SUSPEND_FOR_APPROVAL
+      severity: high
+      reason: "EU AI Act Article 14: High-impact decision requires human oversight (HITL)"
+      compliance_tags: ["EU-AI-ACT-ART-14", "HITL-MANDATORY"]
+      required_approvals: 2
+      required_approver_roles: ["compliance_officer", "legal_lead"]
+
+  # Article 12: Transparency & Groundedness
+  - id: eu-ai-act-art12-hallucination-block
+    name: Article 12 Grounded Output Verification
+    priority: 8
+    stages: ["llm_output"]
+    condition:
+      field: "scanner_findings.nli_faithfulness_scanner.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: high
+      reason: "EU AI Act Article 12: Output contains unverified, hallucinated claims"
+      compliance_tags: ["EU-AI-ACT-ART-12", "GROUNDEDNESS"]
+

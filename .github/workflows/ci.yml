@@ -1,0 +1,125 @@
+name: AegisGate Universal Enterprise CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  python-test-suite:
+    name: Backend Test Suite & Coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: aegisgate
+          POSTGRES_USER: aegis
+          POSTGRES_PASSWORD: aegis_secure_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -e sdks/python
+          pip install pytest pytest-cov pytest-asyncio pytest-mock
+
+      - name: Run Database Migrations
+        run: |
+          alembic upgrade head
+
+      - name: Execute Full Pytest Suite & Coverage
+        run: |
+          pytest --cov=core --cov-report=term-missing --cov-fail-under=85 tests/
+
+      - name: Validate Reference & Turnkey Policy Packs
+        run: |
+          aegisctl validate policy_packs/base-enterprise/policy.yaml
+          aegisctl validate policy_packs/agent-fleet-pack/policy.yaml
+          aegisctl validate policy_packs/soc-investigation-pack/policy.yaml
+          aegisctl validate policy_packs/log-analysis-pack/policy.yaml
+          aegisctl validate policy_packs/rag-copilot-pack/policy.yaml
+          aegisctl validate policy_packs/customer-support-voice-pack/policy.yaml
+          aegisctl validate policy_packs/eu-ai-act-pack/policy.yaml
+          aegisctl validate policy_packs/hipaa-pack/policy.yaml
+          aegisctl validate policy_packs/pci-dss-pack/policy.yaml
+          aegisctl validate policy_packs/nist-ai-rmf-pack/policy.yaml
+
+  typescript-and-dashboard:
+    name: TypeScript SDK & Control Plane Dashboard Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test TypeScript SDK
+        working-directory: sdks/typescript
+        run: |
+          npm ci || npm install
+          npm test
+
+      - name: Build React Dashboard Bundle
+        working-directory: dashboard
+        run: |
+          npm ci || npm install
+          npm run build
+
+  container-build-verification:
+    name: Container Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Engine Container
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/Dockerfile.engine
+          push: false
+          tags: aegisgate-engine:ci-test
+
+      - name: Build Dashboard Container
+        uses: docker/build-push-action@v5
+        with:
+          context: ./dashboard
+          file: deploy/Dockerfile.dashboard
+          push: false
+          tags: aegisgate-dashboard:ci-test
+

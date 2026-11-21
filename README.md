@@ -65,12 +65,16 @@ AegisGate is a high-throughput, sub-15ms Policy Decision Point (PDP) designed to
 ```
 
 ### Key Performance & Governance Benchmarks
-- **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.61ms P95 latency** (0.38ms P50, 0.77ms P99) under real enterprise workloads (DoD target: < 15ms).
+- **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.50ms P95 latency** (0.38ms P50, 0.53ms P99) under real enterprise workloads (DoD target: < 15ms).
+- **Full-Stack End-to-End HTTP Latency:** Real web stack (FastAPI + Redis + PostgreSQL + Full Orchestrator) delivers **28.94ms P95 latency** (21.51ms P50, 34.22ms P99; target: < 35ms).
+- **Universal Multi-Provider LLM Proxies:** Native, streaming-capable reverse proxies for OpenAI (`/proxy/llm/v1/*`), Anthropic Messages (`/proxy/anthropic/v1/messages`), and Google Gemini (`/proxy/gemini/v1beta/*`) with exact token reconciliation.
+- **Enterprise KMS & Envelope Encryption:** Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records.
+- **Turnkey Regulatory Compliance:** Production policy packs for EU AI Act, HIPAA, PCI DSS, and NIST AI RMF with automated audit compliance reports (`GET /v1/audit/compliance-report`).
 - **Red-Team Injection Benchmark:** Achieves **100.0% prompt injection detection** (41/41 attacks caught) with **0.00% False Positive Rate** (0/41 benign logs flagged) on security evaluation corpora.
 - **Protocol-Aware MCP Anti-Rug-Pull:** Pinned SHA-256 schema hashing detects upstream drift, auto-quarantines tools, strips them from `tools/list`, and enforces monotonic tool scope attenuation.
 - **Stateful Session Taints:** Multi-step tool-chain governance backed by Redis sets prevents toxic composite actions (confidential read followed by external exfiltration).
 - **Strict Decoupling:** Core governance mechanics (`core/`) contain **zero domain-specific code**; all domain logic is strictly isolated in `plugins/` and `policy_packs/`.
-- **Tamper-Evident Ledger:** Every policy verdict is chained to its predecessor via `prev_hash`, enabling continuous topological Merkle integrity checks.
+- **Tamper-Evident Ledger:** Every policy verdict is chained to its predecessor via `prev_hash` and signed with KMS HMAC, enabling continuous topological Merkle integrity checks.
 - **Comprehensive Documentation:** Full technical specifications in [ARCHITECTURE.md](ARCHITECTURE.md) and step-by-step showcase in [DEMO_GUIDE.md](DEMO_GUIDE.md).
 
 ---
@@ -108,16 +112,19 @@ AegisGate runs on standard ports (`3000`/`8000`) or dedicated conflict-free deve
 
 | Component | Port (Dev / Docker) | Path / URL | Description |
 | :--- | :--- | :--- | :--- |
-| **Control Plane Dashboard** | `3088` / `3000` | `http://localhost:3088` | React 18 + TS UI (Policy Studio, Tenants, MCP, HITL, Kill Switch, Merkle Forensics) |
-| **PDP Evaluation Gateway** | `8088` / `8000` | `/v1/evaluate` | Primary REST PDP endpoint for tool and LLM evaluation |
-| **OpenAI LLM Reverse Proxy** | `8088` / `8000` | `/proxy/llm/v1/chat/completions` | Transparent LLM gateway with failover, sovereignty routing, and token true-up |
+| **Control Plane Dashboard** | `3088` / `3000` | `http://localhost:3088` | React 18 + TS UI (Policy Studio, Tenants, MCP, HITL, Kill Switch, Merkle Forensics, Compliance Exporter) |
+| **PDP Evaluation Gateway** | `8088` / `8000` | `/v1/evaluate` | Primary REST PDP endpoint for tool, RAG, and LLM evaluation |
+| **OpenAI LLM Reverse Proxy** | `8088` / `8000` | `/proxy/llm/v1/chat/completions` | Transparent OpenAI gateway with failover, sovereignty routing, and token true-up |
+| **Anthropic Messages Proxy** | `8088` / `8000` | `/proxy/anthropic/v1/messages` | Native Anthropic Messages API gateway with streaming SSE & token reconciliation |
+| **Google Gemini Proxy** | `8088` / `8000` | `/proxy/gemini/v1beta/models/{model}:generateContent` | Native Google Gemini API gateway with contents, system instructions & streaming |
 | **MCP Tool Gateway** | `8088` / `8000` | `/proxy/mcp/jsonrpc` | Protocol-Aware MCP JSON-RPC 2.0 gateway with Anti-Rug-Pull schema pinning |
 | **MCP Server Management** | `8088` / `8000` | `/v1/mcp/servers`, `/v1/mcp/tools/*` | Upstream MCP server registry, tool schema pinning, and quarantine controls |
 | **Multi-Tenancy & Keys** | `8088` / `8000` | `/v1/tenants`, `/v1/api-keys`, `/v1/budgets` | Tenant isolation, scoped Virtual API Keys, and live Redis budget quotas |
 | **Shadow AI Discovery** | `8088` / `8000` | `/v1/discovery/assets` | Auto-discovered models, rogue tools, and approve/block governance |
 | **REST Tool Gateway** | `8088` / `8000` | `/proxy/tools/{tool_name}` | Generic HTTP tool execution guardrail proxy |
 | **HITL Approvals Inbox** | `8088` / `8000` | `/v1/approvals` | Human-in-the-Loop decision and parameter override API |
-| **Audit & Merkle Verifier** | `8088` / `8000` | `/v1/audit/verify` | Cryptographic hash-chain continuity and tamper detection |
+| **Audit & Merkle Verifier** | `8088` / `8000` | `/v1/audit/verify` | Cryptographic hash-chain continuity and KMS HMAC tamper detection |
+| **Compliance Report Exporter** | `8088` / `8000` | `/v1/audit/compliance-report` | Regulatory compliance evidence package (EU AI Act, HIPAA, PCI DSS, NIST AI RMF) |
 | **Circuit Breakers** | `8088` / `8000` | `/v1/kill-switch` | 5-level emergency circuit breaker controls |
 | **Policy Studio API** | `8088` / `8000` | `/v1/policies` | Policy pack CRUD, shadow promotion, and 1-click rollback |
 | **Health Check** | `8088` / `8000` | `/healthz` | Kubernetes liveness and readiness probe |
@@ -215,6 +222,31 @@ Omnichannel customer service and voice agent guardrails:
 - Safety & toxicity scanner catching harassment, profanity, and threats with local ML.
 - Sub-5ms low latency Tier-1/Tier-2 fast path for interactive voice sessions.
 
+### 7. `eu-ai-act-pack`
+Turnkey compliance with EU Artificial Intelligence Act (Regulation 2024/1689):
+- Article 5 prohibited practice blocking (social scoring, biometric categorization, emotion manipulation).
+- Article 9 & 14 human oversight enforcement: mandatory HITL approvals for high-risk autonomous decisions.
+- Article 12 automatic chronological audit logging with tamper-evident cryptographic proofs.
+
+### 8. `hipaa-pack`
+Health Insurance Portability and Accountability Act (HIPAA) compliance for healthcare agents:
+- Reversible tokenization of 18 PHI identifiers (names, MRNs, dates, locations, contact info) via KMS-backed vault.
+- Enforces strict `local_only` sovereignty routing preventing external transmission of unredacted health data.
+- Blocks unauthorized external exfiltration tools following clinical data access.
+
+### 9. `pci-dss-pack`
+Payment Card Industry Data Security Standard (PCI DSS v4.0) guardrails:
+- Zero-tolerance blocking and masking for Primary Account Numbers (PAN) with Luhn checksum validation.
+- CVV/CVC and card magnetic track data exfiltration prevention.
+- Mandatory dual-approval (4-eyes) HITL escalation for payment processing and refund dispatch tools.
+
+### 10. `nist-ai-rmf-pack`
+NIST Artificial Intelligence Risk Management Framework (AI RMF 1.0) controls:
+- **Map:** Continuous Shadow AI asset discovery and cataloging.
+- **Measure:** Tier-1/Tier-2 prompt injection, toxicity, and NLI faithfulness scoring.
+- **Manage:** Multi-layer circuit breakers, budget limits, and delegation loop breakers.
+- **Govern:** Centralized multi-tenant policy enforcement, role-based tool access, and tamper-evident audit ledger.
+
 ---
 
 ## 6. Developer SDKs & Ecosystem Adapters
@@ -249,6 +281,29 @@ async def execute_query(sql: str) -> dict:
     return await db.fetch(sql)
 ```
 
+##### CrewAI Task & Tool Guard
+```python
+from aegisgate.adapters import CrewAIGuard
+
+guard = CrewAIGuard(policy_pack_id="base-enterprise", agent_role="analyst")
+
+# Wrap individual CrewAI tools with pre-call parameter checking and post-call output redaction
+governed_tool = guard.wrap_tool(database_query_tool, tool_name="db_query")
+```
+
+##### LlamaIndex RAG & Query Engine Guard
+```python
+from aegisgate.adapters import LlamaIndexGuard
+
+guard = LlamaIndexGuard(policy_pack_id="rag-copilot-pack", actor_role="internal")
+
+# Filter retrieved document nodes according to caller clearance before LLM synthesis
+filtered_nodes = await guard.post_retrieval_filter(retrieved_nodes, query_str=user_query)
+
+# Guard final synthesized response against hallucination and data leakage
+safe_response = await guard.post_response_guard(response.response, query_str=user_query)
+```
+
 ##### OpenAI SDK Client Adapter
 ```python
 from openai import OpenAI
@@ -261,6 +316,13 @@ adapter = AegisOpenAIAdapter(
 )
 client = OpenAI(**adapter.get_client_kwargs())
 ```
+
+### TypeScript / JavaScript SDK (`@aegisgate/sdk`)
+Install for Node.js, Bun, or Browser environments:
+```bash
+npm install @aegisgate/sdk
+```
+Supports Virtual API Key authentication, streaming proxy inspection, HITL polling (`waitForApproval`), and Vercel AI SDK middleware wrapping (`wrapTool`).
 
 ---
 
@@ -299,7 +361,7 @@ AegisGate satisfies international AI governance, financial, and cybersecurity co
 
 ## 9. Testing & Quality Verification
 
-Run full test suite (94 tests with 86% coverage on core):
+Run full test suite (124 tests across Phases 1–13 with 85% coverage on core):
 ```bash
 pytest --cov=core --cov-report=term-missing
 ```
@@ -309,9 +371,9 @@ Run Red-Team Injection Benchmark:
 pytest tests/redteam/test_injection_benchmark.py -v -s
 ```
 
-Run Fast-Path P95 Latency Benchmark:
+Run Fast-Path P95 Latency Benchmark & E2E HTTP Latency Benchmark:
 ```bash
-pytest tests/benchmarks/test_tier1_benchmark.py -v -s
+pytest tests/benchmarks/ -v -s
 ```
 
 Run End-to-End System Verification:
@@ -319,14 +381,9 @@ Run End-to-End System Verification:
 python scripts/verify_system.py
 ```
 
-Run Automated UI & Backend Playwright Verification:
+Run TypeScript SDK Tests & Dashboard Build:
 ```bash
-node scripts/test_ui_backend_integration.mjs
-node scripts/verify_v2_ui.mjs
-```
-
-Build Control Plane UI:
-```bash
+npm --prefix sdks/typescript test
 npm --prefix dashboard run build
 ```
 

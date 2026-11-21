@@ -575,13 +575,17 @@ Relational persistence uses SQLAlchemy 2.0 models with Alembic migrations:
           ▼
 [0006_phase10_shadow_discovery]
   └── discovered_assets (auto-discovered Shadow AI models, tools, and rogue agents)
+          │
+          ▼
+[0007_phase13_kms_signatures]
+  └── audit_records (added kms_signature column for pluggable KMS HMAC verification)
 ```
 
 ---
 
 ## 18. Production Packaging & Deployment
 
-AegisGate packages as an enterprise containerized stack:
+AegisGate packages as an enterprise containerized stack supporting Docker Compose, Helm on Kubernetes, and native systemd environments:
 
 ```yaml
 # deploy/docker-compose.yml Architecture
@@ -600,7 +604,22 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile.dashboard }
     ports: ["3088:80"]
     depends_on: [engine]
+  # Optional observability profile:
+  # docker compose --profile observability up -d
+  prometheus:
+    image: prom/prometheus:v2.51.0
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+  grafana:
+    image: grafana/grafana:10.4.0
 ```
+
+### Kubernetes Helm Chart
+Located at `deploy/helm/aegisgate/`:
+- Declarative values (`values.yaml`) configuring replicas, HPA autoscaling, resource requests/limits, non-root `securityContext`.
+- Engine & Dashboard deployments with HTTP liveness/readiness probes (`/healthz`).
+- Ingress with streaming SSE proxy annotations (`proxy-read-timeout: 3600`, `proxy-buffering: "off"`).
+- Pre-upgrade Alembic migration Job hook running `alembic upgrade head` before pod rollout.
 
 ---
 
@@ -608,16 +627,17 @@ services:
 
 | Requirement / Milestone | Target Metric | Measured Result | Status |
 |:---|:---|:---|:---:|
-| **Automated Pytest Suite** | 100% Passing | **94 / 94 Passed (100%)** | **PASS** |
-| **Core Test Coverage** | $\ge 85\%$ | **86% across 2,771 lines in `core/`** | **PASS** |
-| **Tier-1 P95 Evaluation Latency** | $< 15.0\text{ ms}$ | **0.61 ms** ($P_{50} = 0.38\text{ ms}$, $P_{99} = 0.77\text{ ms}$) | **PASS** |
+| **Automated Pytest Suite** | 100% Passing | **124 / 124 Passed (100%)** | **PASS** |
+| **Core Test Coverage** | $\ge 85\%$ | **85% across 3,040 lines in `core/`** | **PASS** |
+| **Tier-1 P95 Evaluation Latency** | $< 15.0\text{ ms}$ | **0.50 ms** ($P_{50} = 0.38\text{ ms}$, $P_{99} = 0.53\text{ ms}$) | **PASS** |
+| **Full E2E HTTP P95 Latency** | $< 35.0\text{ ms}$ | **28.94 ms** ($P_{50} = 21.51\text{ ms}$, $P_{99} = 34.22\text{ ms}$) | **PASS** |
 | **Red-Team Injection Detection** | $\ge 95\%$ | **100.0% (41 / 41 attacks caught)** | **PASS** |
 | **Benign Security Log False Positives** | $< 2.0\%$ | **0.00% (0 / 41 false alarms)** | **PASS** |
-| **Control Plane UI Build** | 0 TypeScript Errors | **Clean Vite Build (dist/ packaged in 3.10s)** | **PASS** |
-| **End-to-End System Workflows** | 12 / 12 Scenarios | **12 / 12 Verified (100%)** | **PASS** |
-| **Dashboard TypeScript & Vite Build** | Zero Errors | **Built cleanly (229 kB bundle)** | **PASS** |
-| **TypeScript SDK Typecheck** | Zero Errors | **Clean compilation (`tsc --noEmit`)** | **PASS** |
-| **Architectural Purity** | Zero Domain in Core | **100% compliant (Alembic only)** | **PASS** |
+| **Control Plane UI Build** | 0 TypeScript Errors | **Clean Vite Build (dist/ packaged in 3.33s)** | **PASS** |
+| **End-to-End System Workflows** | 16 / 16 Scenarios | **16 / 16 Verified (100%)** | **PASS** |
+| **Dashboard TypeScript & Vite Build** | Zero Errors | **Built cleanly (276 kB bundle)** | **PASS** |
+| **TypeScript SDK Typecheck & Tests** | Zero Errors | **Clean compilation & 100% passing tests** | **PASS** |
+| **Architectural Purity** | Zero Domain in Core | **100% compliant (Alembic only, 0001-0007)** | **PASS** |
 
 ---
 

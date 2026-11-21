@@ -103,6 +103,11 @@ export const AuditForensicsView: React.FC<AuditForensicsViewProps> = ({ tenantId
     window.open(url, '_blank');
   };
 
+  const handleComplianceReport = (framework: string, format: 'json' | 'markdown' = 'markdown') => {
+    const url = `/v1/audit/compliance-report?tenant_id=${encodeURIComponent(tenantId)}&framework=${framework}&format=${format}`;
+    window.open(url, '_blank');
+  };
+
   const filteredLogs = logs.filter((log) => {
     if (decisionFilter !== 'ALL' && log.decision !== decisionFilter) {
       return false;
@@ -191,21 +196,50 @@ export const AuditForensicsView: React.FC<AuditForensicsViewProps> = ({ tenantId
               Cryptographically signed exports mapped to OWASP LLM Top 10, SOC 2, and EU AI Act.
             </p>
           </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => handleExport('jsonl')}
-              className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1.5"
-            >
-              <FileCode className="w-3.5 h-3.5 text-blue-400" />
-              <span>Export JSONL</span>
-            </button>
-            <button
-              onClick={() => handleExport('csv')}
-              className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1.5"
-            >
-              <Download className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Export CSV</span>
-            </button>
+          <div className="space-y-2">
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => handleExport('jsonl')}
+                className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1.5"
+              >
+                <FileCode className="w-3.5 h-3.5 text-blue-400" />
+                <span>Export JSONL</span>
+              </button>
+              <button
+                onClick={() => handleExport('csv')}
+                className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-1.5"
+              >
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Export CSV</span>
+              </button>
+            </div>
+            <div className="flex items-center space-x-1 pt-1 border-t border-slate-800">
+              <span className="text-[10px] text-slate-400 font-medium shrink-0">Report:</span>
+              <button
+                onClick={() => handleComplianceReport('eu-ai-act')}
+                className="px-1.5 py-1 text-[10px] bg-blue-950/60 hover:bg-blue-900/60 border border-blue-500/30 text-blue-300 rounded font-mono"
+              >
+                EU AI Act
+              </button>
+              <button
+                onClick={() => handleComplianceReport('hipaa')}
+                className="px-1.5 py-1 text-[10px] bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 rounded font-mono"
+              >
+                HIPAA
+              </button>
+              <button
+                onClick={() => handleComplianceReport('pci-dss')}
+                className="px-1.5 py-1 text-[10px] bg-purple-950/60 hover:bg-purple-900/60 border border-purple-500/30 text-purple-300 rounded font-mono"
+              >
+                PCI-DSS
+              </button>
+              <button
+                onClick={() => handleComplianceReport('nist-ai-rmf')}
+                className="px-1.5 py-1 text-[10px] bg-amber-950/60 hover:bg-amber-900/60 border border-amber-500/30 text-amber-300 rounded font-mono"
+              >
+                NIST RMF
+              </button>
+            </div>
           </div>
         </div>
 

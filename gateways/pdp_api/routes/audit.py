@@ -1,13 +1,17 @@
+import datetime
 import json
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from core.audit.exporter import ComplianceAuditExporter
 from core.audit.verifier import AuditVerificationResult, AuditVerifier
 from core.database import db_context
+from core.models.approval import ApprovalTicketRecord
 from core.models.audit import AuditRecord
+from core.models.discovery import DiscoveredAssetRecord
 
 router = APIRouter(prefix="/v1/audit", tags=["Audit Ledger & Compliance"])
 
@@ -84,3 +88,149 @@ async def list_audit_records(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database query error: {exc!s}")
     return results
+
+
+@router.get("/compliance-report")
+async def generate_compliance_report(
+    framework: str = Query(
+        default="eu-ai-act",
+        pattern="^(eu-ai-act|hipaa|pci-dss|nist-ai-rmf)$",
+        description="Regulatory compliance framework",
+    ),
+    tenant_id: str = Query(default="default", description="Tenant ID to audit"),
+    format: str = Query(default="json", pattern="^(json|markdown)$", description="Report format: json or markdown"),
+    from_date: str | None = Query(default=None),
+    to_date: str | None = Query(default=None),
+) -> Response:
+    """Generates structured auditor evidence package with cryptographic verification certificate."""
+    verifier = AuditVerifier()
+    verif = await verifier.verify_tenant_chain(tenant_id=tenant_id)
+
+    decision_counts: dict[str, int] = {"ALLOW": 0, "DENY": 0, "MODIFY": 0, "SUSPEND_FOR_APPROVAL": 0}
+    control_breakdown: dict[str, int] = {}
+    hitl_counts: dict[str, int] = {"pending": 0, "approved": 0, "rejected": 0}
+    shadow_count = 0
+
+    framework_prefixes = {
+        "eu-ai-act": "EU-AI-ACT",
+        "hipaa": "HIPAA",
+        "pci-dss": "PCI-DSS",
+        "nist-ai-rmf": "NIST-AI-RMF",
+    }
+    target_prefix = framework_prefixes.get(framework, "")
+
+    try:
+        async with db_context() as session:
+            # 1. Audit decisions
+            stmt = select(AuditRecord).where(AuditRecord.tenant_id == tenant_id)
+            res = await session.execute(stmt)
+            records = res.scalars().all()
+
+            for r in records:
+                dec = r.decision
+                if dec in decision_counts:
+                    decision_counts[dec] += 1
+                else:
+                    decision_counts[dec] = 1
+
+                try:
+                    tags = json.loads(r.compliance_tags_json or "[]")
+                    for t in tags:
+                        if target_prefix in t:
+                            control_breakdown[t] = control_breakdown.get(t, 0) + 1
+                except Exception:
+                    pass
+
+            # 2. HITL Ticket stats
+            ticket_stmt = select(ApprovalTicketRecord).where(ApprovalTicketRecord.tenant_id == tenant_id)
+            ticket_res = await session.execute(ticket_stmt)
+            tickets = ticket_res.scalars().all()
+            for t in tickets:
+                st = (t.status or "pending").lower()
+                if st in hitl_counts:
+                    hitl_counts[st] += 1
+
+            # 3. Discovered shadow assets
+            shadow_stmt = select(func.count(DiscoveredAssetRecord.id)).where(DiscoveredAssetRecord.tenant_id == tenant_id)
+            shadow_res = await session.execute(shadow_stmt)
+            shadow_count = shadow_res.scalar() or 0
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Database aggregation error: {exc!s}")
+
+    report_id = str(uuid.uuid4())
+    generated_at = datetime.datetime.now(datetime.UTC).isoformat()
+
+    report_data = {
+        "report_id": report_id,
+        "framework": framework,
+        "tenant_id": tenant_id,
+        "generated_at": generated_at,
+        "hash_chain_certificate": {
+            "is_valid": verif.is_valid,
+            "total_records": verif.total_records,
+            "tampered_records": verif.tampered_records,
+            "status": "VERIFIED_UNBROKEN" if verif.is_valid else "TAMPERED",
+            "verification_message": verif.message,
+        },
+        "enforcement_summary": decision_counts,
+        "control_breakdown": control_breakdown,
+        "hitl_human_oversight": hitl_counts,
+        "shadow_ai_exceptions": shadow_count,
+    }
+
+    if format == "markdown":
+        md = f"""# AegisGate Regulatory Compliance Audit Report
+**Framework:** {framework.upper()}  
+**Report ID:** `{report_id}`  
+**Tenant ID:** `{tenant_id}`  
+**Generated At:** {generated_at}  
+
+---
+
+## 1. Cryptographic Hash-Chain Verification
+- **Status:** **{'✓ ' + ('VERIFIED_UNBROKEN' if verif.is_valid else 'TAMPERED')}**
+- **Total Audited Records:** {verif.total_records}
+- **Tampered Records:** {len(verif.tampered_records)}
+- **Certificate Detail:** {verif.message}
+
+---
+
+## 2. Policy Enforcement Summary
+| Decision | Count |
+| :--- | :--- |
+| **ALLOW** | {decision_counts.get('ALLOW', 0)} |
+| **DENY** (Enforced Block) | {decision_counts.get('DENY', 0)} |
+| **MODIFY** (Sanitized / Sovereign) | {decision_counts.get('MODIFY', 0)} |
+| **SUSPEND_FOR_APPROVAL** (HITL) | {decision_counts.get('SUSPEND_FOR_APPROVAL', 0)} |
+
+---
+
+## 3. Control Breakdown ({target_prefix})
+| Control Tag | Enforcements |
+| :--- | :--- |
+"""
+        if control_breakdown:
+            for ctag, count in control_breakdown.items():
+                md += f"| `{ctag}` | {count} |\n"
+        else:
+            md += "| *No specific control triggers recorded in period* | 0 |\n"
+
+        md += f"""
+---
+
+## 4. Human Oversight (HITL) Governance
+- **Pending Approvals:** {hitl_counts.get('pending', 0)}
+- **Approved Actions:** {hitl_counts.get('approved', 0)}
+- **Rejected Actions:** {hitl_counts.get('rejected', 0)}
+
+---
+
+## 5. Shadow AI Assets & Discovery
+- **Unapproved / Monitored Shadow AI Assets:** {shadow_count}
+
+*Certified by AegisGate Sub-15ms Governance PDP Engine.*
+"""
+        return Response(content=md, media_type="text/markdown", headers={"Content-Disposition": f'inline; filename="compliance_{framework}_{tenant_id}.md"'})
+
+    return Response(content=json.dumps(report_data, indent=2), media_type="application/json")

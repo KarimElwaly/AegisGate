@@ -66,6 +66,9 @@ class RagAclGuardScanner(BaseScanner):
             else:
                 chunks.append(raw_data)
 
+        if not chunks and request.action and request.action.parameters:
+            chunks.append({"text": str(raw_data) if raw_data is not None else "", "metadata": request.action.parameters})
+
         if not chunks and "retrieved_chunks" in request.metadata:
             retrieved = request.metadata["retrieved_chunks"]
             if isinstance(retrieved, list):

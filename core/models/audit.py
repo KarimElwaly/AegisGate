@@ -27,10 +27,11 @@ class AuditRecord(Base):
     compliance_tags_json: Mapped[str] = mapped_column(Text, default="[]")
     latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
 
-    # Cryptographic Hash Chain Fields
+    # Cryptographic Hash Chain & KMS Signature Fields
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     record_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    kms_signature: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.datetime.utcnow, index=True

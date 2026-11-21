@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-engine
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  replicas: {{ .Values.engine.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "aegisgate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: engine
+  template:
+    metadata:
+      labels:
+        {{- include "aegisgate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: engine
+    spec:
+      securityContext:
+        {{- toYaml .Values.engine.securityContext | nindent 8 }}
+      containers:
+        - name: engine
+          image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag }}"
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.engine.service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "aegisgate.fullname" . }}-config
+            - secretRef:
+                name: {{ include "aegisgate.fullname" . }}-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.engine.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-engine
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  type: {{ .Values.engine.service.type }}
+  ports:
+    - port: {{ .Values.engine.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "aegisgate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+

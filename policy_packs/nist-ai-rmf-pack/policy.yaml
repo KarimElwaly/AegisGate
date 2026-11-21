@@ -1,0 +1,86 @@
+id: nist-ai-rmf-pack
+name: NIST AI Risk Management Framework Compliance Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Turnkey NIST AI RMF 1.0 compliance policy pack covering Map, Measure, Manage, and Govern core functions with automated continuous telemetry.
+
+scanners:
+  - name: onnx_injection_classifier
+    enabled: true
+    tier: 2
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      threshold: 0.60
+      action_on_match: block
+
+  - name: prompt_leakage_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      max_leakage_ratio: 0.65
+      action_on_leak: block
+
+  - name: nli_faithfulness_scanner
+    enabled: true
+    tier: 2
+    timeout_ms: 150
+    on_timeout: flag
+    config:
+      min_faithfulness_score: 0.55
+      action_on_hallucination: block
+
+resolvers: []
+budgets:
+  max_tokens: 50000
+  max_tool_calls: 35
+
+rules:
+  # MANAGE 2.4: Third-party & indirect injection risk mitigation
+  - id: nist-manage-injection-block
+    name: NIST MANAGE 2.4 Prompt Injection Mitigation
+    priority: 1
+    stages: ["llm_input", "tool_post_call"]
+    condition:
+      field: "scanner_findings.onnx_injection_classifier.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: critical
+      reason: "NIST AI RMF MANAGE 2.4: Untrusted input rejected due to high injection confidence"
+      compliance_tags: ["NIST-AI-RMF-MANAGE-2.4", "INJECTION-DEFENSE"]
+
+  # GOVERN 1.2: Agent Delegation Depth Cap
+  - id: nist-govern-delegation-depth-cap
+    name: NIST GOVERN 1.2 Delegation Boundary Attenuation
+    priority: 5
+    stages: ["tool_pre_call", "agent_handoff"]
+    condition:
+      field: "actor.delegation_depth"
+      operator: "gt"
+      value: 3
+    action:
+      decision: DENY
+      severity: high
+      reason: "NIST AI RMF GOVERN 1.2: Delegation depth exceeded authorized autonomous bounds"
+      compliance_tags: ["NIST-AI-RMF-GOVERN-1.2", "DELEGATION-LIMIT"]
+
+  # MEASURE 2.5: Factual Groundedness Verification
+  - id: nist-measure-grounding-gate
+    name: NIST MEASURE 2.5 Factual Consistency & Groundedness
+    priority: 7
+    stages: ["llm_output"]
+    condition:
+      field: "scanner_findings.nli_faithfulness_scanner.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: high
+      reason: "NIST AI RMF MEASURE 2.5: Model output failed factual validation test"
+      compliance_tags: ["NIST-AI-RMF-MEASURE-2.5", "GROUNDEDNESS"]
+
