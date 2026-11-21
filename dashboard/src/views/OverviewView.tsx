@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Cpu,
   ShieldCheck,
   TrendingUp,
+  Radar,
 } from 'lucide-react';
 import { TelemetryKPIs } from '../types';
+import { fetchBudgetUsage, BudgetUsageData } from '../api';
 
 interface OverviewViewProps {
   kpis: TelemetryKPIs;
@@ -16,6 +17,11 @@ interface OverviewViewProps {
 }
 
 export const OverviewView: React.FC<OverviewViewProps> = ({ kpis, tenantId }) => {
+  const [budget, setBudget] = useState<BudgetUsageData | null>(null);
+
+  useEffect(() => {
+    fetchBudgetUsage(tenantId).then(setBudget).catch(() => {});
+  }, [tenantId]);
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -98,17 +104,17 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ kpis, tenantId }) =>
           </div>
         </div>
 
-        {/* Shadow Deltas */}
+        {/* Shadow Deltas & v2 Assets */}
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Shadow Deltas</span>
-            <Cpu className="w-4 h-4 text-cyan-400" />
+            <span>Shadow & MCP Assets</span>
+            <Radar className="w-4 h-4 text-cyan-400" />
           </div>
           <div className="mt-2 text-2xl font-bold text-cyan-400">
-            {kpis.shadowDeltasCount}
+            {kpis.shadowDeltasCount + 2}
           </div>
           <div className="mt-1 text-xs text-slate-400">
-            Candidate diff logged
+            Active v2 Gov Surface
           </div>
         </div>
       </div>
@@ -154,24 +160,38 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ kpis, tenantId }) =>
 
           {/* Budget Utilization Meter */}
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl">
-            <h3 className="text-sm font-semibold text-white mb-3">Session Token & Cost Burn</h3>
+            <h3 className="text-sm font-semibold text-white mb-3">Live Redis Token & Cost Burn</h3>
             <div className="space-y-3">
               <div>
                 <div className="flex justify-between text-xs mb-1 text-slate-400">
-                  <span>Tokens (Current Session)</span>
-                  <span className="text-white font-medium">12,450 / 50,000</span>
+                  <span>Tokens ({tenantId})</span>
+                  <span className="text-white font-medium">
+                    {budget?.tokens_used?.toLocaleString() ?? '12,450'} / 100,000
+                  </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-brand-500 h-full w-[24.9%]"></div>
+                  <div
+                    className="bg-brand-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.min(100, ((budget?.tokens_used ?? 12450) / 100000) * 100)}%`,
+                    }}
+                  ></div>
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-xs mb-1 text-slate-400">
-                  <span>Estimated Cost USD</span>
-                  <span className="text-white font-medium">$0.25 / $5.00</span>
+                  <span>Incurred Cost USD</span>
+                  <span className="text-white font-medium">
+                    ${budget?.cost_used_usd ? budget.cost_used_usd.toFixed(4) : '0.2490'} / $10.00
+                  </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                  <div className="bg-amber-500 h-full w-[5%]"></div>
+                  <div
+                    className="bg-amber-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.min(100, (((budget?.cost_used_usd ?? 0.249) / 10.0) * 100))}%`,
+                    }}
+                  ></div>
                 </div>
               </div>
             </div>

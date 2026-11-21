@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4317"
     PROMETHEUS_METRICS_ENABLED: bool = True
 
+    # OIDC Configuration
+    OIDC_ENABLED: bool = False
+    OIDC_ISSUER: str = ""
+    OIDC_CLIENT_ID: str = ""
+    OIDC_JWKS_URI: str = ""
+    OIDC_ROLE_CLAIM: str = "groups"
+
     # Local ML & Judge
     LOCAL_ONNX_MODEL_DIR: str = "./models"
     LLM_JUDGE_BASE_URL: str = "http://localhost:11434/v1"

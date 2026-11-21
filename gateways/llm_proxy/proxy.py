@@ -148,11 +148,17 @@ async def chat_completions(
                 tenant_id=x_aegis_tenant_id,
                 session_id=x_aegis_session_id or "global",
                 rehydrate_pii=True,
+                estimated_prompt_tokens=eval_req_input.action.estimated_tokens,
+                actor_id=x_aegis_actor_id,
+                actor_role=x_aegis_actor_role,
+                model=model,
+                policy_pack_id=x_aegis_policy_pack,
             )
 
             async def mock_generator():
                 yield b"data: {\"choices\": [{\"delta\": {\"content\": \"Paris is the \"}}]}\n\n"
                 yield b"data: {\"choices\": [{\"delta\": {\"content\": \"capital of France.\"}}]}\n\n"
+                yield b"data: {\"choices\": [], \"usage\": {\"prompt_tokens\": 15, \"completion_tokens\": 10, \"total_tokens\": 25}}\n\n"
                 yield b"data: [DONE]\n\n"
 
             async def guarded_mock_stream():
@@ -162,7 +168,10 @@ async def chat_completions(
             return StreamingResponse(
                 guarded_mock_stream(),
                 media_type="text/event-stream",
-                headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
+                headers={
+                    "X-Aegis-Verdict-Id": verdict_input.verdict_id,
+                    "X-Aegis-Routed-Provider": routed_provider,
+                },
             )
         else:
             assistant_content = "Paris is the capital of France."
@@ -244,9 +253,37 @@ async def chat_completions(
 
     try:
         if stream:
-            target_url = candidate_urls[0]
-            req_stream = client.build_request("POST", target_url, json=body, headers=forward_headers)
-            upstream_resp = await client.send(req_stream, stream=True)
+            if "stream_options" not in body:
+                body["stream_options"] = {"include_usage": True}
+
+            upstream_resp = None
+            last_err = None
+            for target_url in candidate_urls:
+                try:
+                    req_stream = client.build_request("POST", target_url, json=body, headers=forward_headers)
+                    resp_candidate = await client.send(req_stream, stream=True)
+                    if resp_candidate.status_code in (429, 500, 502, 503, 504) and len(candidate_urls) > 1:
+                        logger.warning(
+                            "Upstream streaming provider returned failover code, trying next",
+                            status=resp_candidate.status_code,
+                            url=target_url,
+                        )
+                        await resp_candidate.aclose()
+                        continue
+                    upstream_resp = resp_candidate
+                    break
+                except (httpx.RequestError, httpx.TimeoutException) as err:
+                    last_err = err
+                    logger.warning(
+                        "Upstream streaming provider connection failed, trying next",
+                        error=str(err),
+                        url=target_url,
+                    )
+                    continue
+
+            if upstream_resp is None:
+                await client.aclose()
+                raise last_err or httpx.ConnectError("All upstream streaming providers in pool failed")
 
             if upstream_resp.status_code != 200:
                 content = await upstream_resp.aread()
@@ -261,6 +298,11 @@ async def chat_completions(
                 tenant_id=x_aegis_tenant_id,
                 session_id=x_aegis_session_id or "global",
                 rehydrate_pii=True,
+                estimated_prompt_tokens=eval_req_input.action.estimated_tokens,
+                actor_id=x_aegis_actor_id,
+                actor_role=x_aegis_actor_role,
+                model=model,
+                policy_pack_id=x_aegis_policy_pack,
             )
 
             async def wrapped_stream():

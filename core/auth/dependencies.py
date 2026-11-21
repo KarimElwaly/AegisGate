@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from core.auth.oidc import get_oidc_service
 from core.auth.security import decode_access_token
 from core.database import db_context
 from core.models.user import ApiKeyRecord
@@ -118,10 +119,35 @@ async def get_current_actor(
                 role=role,
                 auth_type="jwt",
             )
-        except Exception as e:
+        except Exception as local_err:
+            oidc_svc = get_oidc_service()
+            if oidc_svc.config.enabled:
+                try:
+                    claims = oidc_svc.verify_oidc_token(token)
+                    user_id = claims.get("sub") or claims.get("email") or "oidc_user"
+                    username = claims.get("preferred_username") or claims.get("email") or claims.get("name") or "oidc_user"
+                    role = claims.get("role", "Auditor")
+                    tid = x_tenant_id or "default"
+                    wid = x_workspace_id or "default"
+
+                    current_tenant_id.set(tid)
+                    current_workspace_id.set(wid)
+                    return AuthenticatedActor(
+                        actor_id=user_id,
+                        username=username,
+                        tenant_id=tid,
+                        workspace_id=wid,
+                        role=role,
+                        auth_type="oidc",
+                    )
+                except Exception as oidc_err:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"OIDC validation failed: {oidc_err!s}",
+                    )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Could not validate credentials: {e!s}",
+                detail=f"Could not validate credentials: {local_err!s}",
             )
 
     # 4. Optional header fallback in dev/test if no credentials provided
@@ -222,10 +248,35 @@ async def get_pdp_actor(
                 role=role,
                 auth_type="jwt",
             )
-        except Exception as e:
+        except Exception as local_err:
+            oidc_svc = get_oidc_service()
+            if oidc_svc.config.enabled:
+                try:
+                    claims = oidc_svc.verify_oidc_token(token)
+                    user_id = claims.get("sub") or claims.get("email") or "oidc_user"
+                    username = claims.get("preferred_username") or claims.get("email") or claims.get("name") or "oidc_user"
+                    role = claims.get("role", "Auditor")
+                    tid = x_tenant_id or "default"
+                    wid = x_workspace_id or "default"
+
+                    current_tenant_id.set(tid)
+                    current_workspace_id.set(wid)
+                    return AuthenticatedActor(
+                        actor_id=user_id,
+                        username=username,
+                        tenant_id=tid,
+                        workspace_id=wid,
+                        role=role,
+                        auth_type="oidc",
+                    )
+                except Exception as oidc_err:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"OIDC validation failed: {oidc_err!s}",
+                    )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Could not validate credentials: {e!s}",
+                detail=f"Could not validate credentials: {local_err!s}",
             )
 
     # 4. Anonymous fallback for backward compatibility

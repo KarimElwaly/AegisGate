@@ -1,13 +1,19 @@
 import React from 'react';
-import { ShieldAlert, Server, UserCheck, Activity } from 'lucide-react';
+import { ShieldAlert, Server, UserCheck, Activity, LogOut } from 'lucide-react';
 
 interface NavbarProps {
   tenantId: string;
   setTenantId: (tenant: string) => void;
   operatorRole: string;
+  onLogout?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ tenantId, setTenantId, operatorRole }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  tenantId,
+  setTenantId,
+  operatorRole,
+  onLogout,
+}) => {
   return (
     <header className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 flex items-center justify-between sticky top-0 z-30">
       <div className="flex items-center space-x-3">
@@ -51,6 +57,16 @@ export const Navbar: React.FC<NavbarProps> = ({ tenantId, setTenantId, operatorR
           <UserCheck className="w-4 h-4 text-indigo-400" />
           <span>{operatorRole}</span>
         </div>
+
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            title="Sign Out"
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 border border-slate-700 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </header>
   );

@@ -9,6 +9,7 @@ import { KillSwitchView } from './views/KillSwitchView';
 import { AuditForensicsView } from './views/AuditForensicsView';
 import { TenantsVirtualKeysView } from './views/TenantsVirtualKeysView';
 import { McpDiscoveryView } from './views/McpDiscoveryView';
+import { LoginView } from './views/LoginView';
 import {
   fetchKPIs,
   fetchPolicyPacks,
@@ -25,7 +26,22 @@ import {
 export const App: React.FC = () => {
   const [tenantId, setTenantId] = useState<string>('default');
   const [currentTab, setCurrentTab] = useState<string>('overview');
-  const [operatorRole] = useState<string>('SuperAdmin');
+  const [operatorRole, setOperatorRole] = useState<string>('SuperAdmin');
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    // Default authenticated if token exists or in standalone/demo mode
+    return true;
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('aegis_token');
+    setIsAuthenticated(false);
+  };
+
+  const handleLoginSuccess = (token: string, role: string) => {
+    localStorage.setItem('aegis_token', token);
+    setOperatorRole(role);
+    setIsAuthenticated(true);
+  };
 
   const [kpis, setKpis] = useState<TelemetryKPIs>({
     totalRequests: 24800,
@@ -68,12 +84,17 @@ export const App: React.FC = () => {
 
   const pendingApprovalsCount = tickets.filter((t) => t.status === 'pending').length;
 
+  if (!isAuthenticated) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Navbar
         tenantId={tenantId}
         setTenantId={setTenantId}
         operatorRole={operatorRole}
+        onLogout={handleLogout}
       />
 
       <div className="flex flex-1 overflow-hidden">

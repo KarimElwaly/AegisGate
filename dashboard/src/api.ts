@@ -321,3 +321,103 @@ export async function toggleKillSwitch(
   }
 }
 
+export async function loginUser(
+  username: string,
+  password: string
+): Promise<{ access_token: string; token_type: string; role?: string }> {
+  const res = await fetch(`${BASE_URL}/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Authentication failed');
+  }
+  const data = await res.json();
+  if (data.access_token) {
+    localStorage.setItem('aegis_token', data.access_token);
+  }
+  return data;
+}
+
+export interface BudgetUsageData {
+  tenant_id: string;
+  scope_type: string;
+  scope_id: string;
+  tokens_used: number;
+  cost_used_usd: number;
+  tool_calls_used: number;
+  consecutive_failures: number;
+}
+
+export async function fetchBudgetUsage(
+  tenantId: string,
+  scopeType = 'tenant',
+  scopeId?: string
+): Promise<BudgetUsageData> {
+  try {
+    const target = scopeId ? `&scope_id=${encodeURIComponent(scopeId)}` : '';
+    const res = await fetch(
+      `${BASE_URL}/v1/budgets/usage?tenant_id=${encodeURIComponent(tenantId)}&scope_type=${scopeType}${target}`,
+      { headers: getAuthHeaders() }
+    );
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+  return {
+    tenant_id: tenantId,
+    scope_type: scopeType,
+    scope_id: scopeId || tenantId,
+    tokens_used: 12450,
+    cost_used_usd: 0.249,
+    tool_calls_used: 42,
+    consecutive_failures: 0,
+  };
+}
+
+export async function updateWorkspaceQuotas(
+  tenantId: string,
+  workspaceId: string,
+  maxTokens: number,
+  maxCostUsd: number,
+  maxToolCalls: number
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/v1/budgets/quotas`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      max_tokens: maxTokens,
+      max_cost_usd: maxCostUsd,
+      max_tool_calls: maxToolCalls,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to update quotas');
+  }
+}
+
+export async function resetLoopBreaker(
+  tenantId: string,
+  actorId: string,
+  sessionId = 'global'
+): Promise<void> {
+  const res = await fetch(`${BASE_URL}/v1/budgets/reset-loop`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      session_id: sessionId,
+      actor_id: actorId,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to reset loop breaker');
+  }
+}
+

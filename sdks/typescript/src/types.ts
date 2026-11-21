@@ -14,6 +14,7 @@ export interface Actor {
   type?: string;
   role?: string;
   delegation_chain?: string[];
+  agent_token?: string;
 }
 
 export interface Action {
@@ -24,11 +25,20 @@ export interface Action {
   estimated_cost_usd?: number;
 }
 
+export interface Attachment {
+  name?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  uri?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface Content {
   trusted_instructions?: string | null;
   untrusted_data?: unknown;
   output_payload?: unknown;
   citations?: string[];
+  attachments?: Attachment[];
 }
 
 export interface EvaluationRequest {
@@ -45,6 +55,8 @@ export interface EvaluationRequest {
   actor: Actor;
   action?: Action;
   content?: Content;
+  session_taints?: string[];
+  declared_scope?: string[];
   execution_mode_override?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -88,4 +100,3 @@ export interface EvaluationVerdict {
   approval_ticket?: ApprovalTicket | null;
   latency_ms: number;
 }
-

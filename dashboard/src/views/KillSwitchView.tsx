@@ -9,9 +9,20 @@ import {
   Layers,
   Terminal,
   Cpu,
+  DollarSign,
+  RefreshCw,
+  Sliders,
 } from 'lucide-react';
 import { KillSwitchItem } from '../types';
-import { fetchKillSwitches, activateKillSwitch, deactivateKillSwitch } from '../api';
+import {
+  fetchKillSwitches,
+  activateKillSwitch,
+  deactivateKillSwitch,
+  fetchBudgetUsage,
+  updateWorkspaceQuotas,
+  resetLoopBreaker,
+  BudgetUsageData,
+} from '../api';
 
 interface KillSwitchViewProps {
   tenantId: string;
@@ -27,6 +38,14 @@ export const KillSwitchView: React.FC<KillSwitchViewProps> = ({ tenantId }) => {
   const [ttlSeconds, setTtlSeconds] = useState<number | undefined>(undefined);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Budget & Quota state
+  const [budgetData, setBudgetData] = useState<BudgetUsageData | null>(null);
+  const [quotaTokens, setQuotaTokens] = useState<number>(100000);
+  const [quotaCost, setQuotaCost] = useState<number>(10.0);
+  const [quotaCalls, setQuotaCalls] = useState<number>(50);
+  const [resetActorId, setResetActorId] = useState<string>('agent-worker-01');
+  const [quotaMsg, setQuotaMsg] = useState<string | null>(null);
+
   const loadSwitches = async () => {
     try {
       setLoading(true);
@@ -39,9 +58,41 @@ export const KillSwitchView: React.FC<KillSwitchViewProps> = ({ tenantId }) => {
     }
   };
 
+  const loadBudget = async () => {
+    try {
+      const data = await fetchBudgetUsage(tenantId);
+      setBudgetData(data);
+    } catch {}
+  };
+
   useEffect(() => {
     loadSwitches();
+    loadBudget();
   }, [tenantId]);
+
+  const handleUpdateQuota = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateWorkspaceQuotas(tenantId, 'default', quotaTokens, quotaCost, quotaCalls);
+      setQuotaMsg('Workspace quota thresholds successfully committed to Redis.');
+      setTimeout(() => setQuotaMsg(null), 4000);
+      await loadBudget();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to update quotas');
+    }
+  };
+
+  const handleResetLoop = async () => {
+    if (!resetActorId.trim()) return;
+    try {
+      await resetLoopBreaker(tenantId, resetActorId);
+      setQuotaMsg(`Loop circuit breaker reset for actor "${resetActorId}".`);
+      setTimeout(() => setQuotaMsg(null), 4000);
+      await loadBudget();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to reset loop');
+    }
+  };
 
   const handleOpenModal = (scope: string, defaultTarget: string = '') => {
     setSelectedScope(scope);
@@ -296,6 +347,144 @@ export const KillSwitchView: React.FC<KillSwitchViewProps> = ({ tenantId }) => {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Live Budgets & Quotas Management Panel */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <DollarSign className="w-5 h-5 text-emerald-400" />
+            <h3 className="text-base font-semibold text-white">Live Budgets & Loop Circuit Breakers</h3>
+          </div>
+          <button
+            onClick={loadBudget}
+            className="flex items-center space-x-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Sync Redis</span>
+          </button>
+        </div>
+
+        {quotaMsg && (
+          <div className="p-3 bg-emerald-950/60 border-b border-emerald-800/40 text-xs text-emerald-300">
+            {quotaMsg}
+          </div>
+        )}
+
+        <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Real-time Redis usage */}
+          <div className="space-y-4">
+            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              Live Redis Burn (Scope: {tenantId})
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-[11px] text-slate-400">Tokens Used</span>
+                <p className="text-lg font-bold font-mono text-emerald-400 mt-1">
+                  {budgetData?.tokens_used?.toLocaleString() ?? 0}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-[11px] text-slate-400">Cost Incurred</span>
+                <p className="text-lg font-bold font-mono text-cyan-400 mt-1">
+                  ${budgetData?.cost_used_usd ? budgetData.cost_used_usd.toFixed(4) : '0.0000'}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-[11px] text-slate-400">Tool Calls</span>
+                <p className="text-lg font-bold font-mono text-brand-400 mt-1">
+                  {budgetData?.tool_calls_used ?? 0}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-[11px] text-slate-400">Failures</span>
+                <p className="text-lg font-bold font-mono text-amber-400 mt-1">
+                  {budgetData?.consecutive_failures ?? 0}
+                </p>
+              </div>
+            </div>
+
+            {/* Runaway loop reset */}
+            <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <RotateCcw className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-semibold text-slate-200">Reset Runaway Loop Breaker</span>
+                </div>
+                <span className="text-[11px] text-slate-400">1-Click Redis Clear</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  value={resetActorId}
+                  onChange={(e) => setResetActorId(e.target.value)}
+                  placeholder="actor-id (e.g. agent-worker-01)"
+                  className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-amber-400 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleResetLoop}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs rounded-lg transition"
+                >
+                  Reset Loop
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Edit Quotas Form */}
+          <form onSubmit={handleUpdateQuota} className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <Sliders className="w-4 h-4 text-brand-400" />
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Configure Workspace Quotas
+              </h4>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Max Tokens</label>
+                <input
+                  type="number"
+                  min={1000}
+                  step={5000}
+                  value={quotaTokens}
+                  onChange={(e) => setQuotaTokens(parseInt(e.target.value, 10) || 0)}
+                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Max Cost ($ USD)</label>
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.5}
+                  value={quotaCost}
+                  onChange={(e) => setQuotaCost(parseFloat(e.target.value) || 0)}
+                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Max Tool Calls</label>
+                <input
+                  type="number"
+                  min={1}
+                  step={5}
+                  value={quotaCalls}
+                  onChange={(e) => setQuotaCalls(parseInt(e.target.value, 10) || 0)}
+                  className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-xs rounded-lg shadow transition"
+            >
+              Update Quotas in Redis
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Confirmation Modal */}
