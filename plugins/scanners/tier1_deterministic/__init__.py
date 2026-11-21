@@ -18,6 +18,10 @@ from plugins.scanners.tier1_deterministic.pii_scanner import (
     PiiScanner,
     PiiScannerConfig,
 )
+from plugins.scanners.tier1_deterministic.prompt_leakage_scanner import (
+    PromptLeakageConfig,
+    PromptLeakageScanner,
+)
 from plugins.scanners.tier1_deterministic.rag_acl_guard import (
     RagAclGuardConfig,
     RagAclGuardScanner,
@@ -42,6 +46,8 @@ __all__ = [
     "MemoryPoisonGuardScanner",
     "PiiScanner",
     "PiiScannerConfig",
+    "PromptLeakageConfig",
+    "PromptLeakageScanner",
     "RagAclGuardConfig",
     "RagAclGuardScanner",
     "SecretsScanner",
@@ -49,4 +55,3 @@ __all__ = [
     "ToolParamGuard",
     "ToolParamGuardConfig",
 ]
-

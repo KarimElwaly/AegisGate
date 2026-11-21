@@ -1,6 +1,14 @@
+from plugins.scanners.tier2_local_ml.multimodal_ocr_scanner import (
+    MultimodalOcrConfig,
+    MultimodalOcrScanner,
+)
 from plugins.scanners.tier2_local_ml.ner_pii_scanner import (
     NerPiiScanner,
     NerPiiScannerConfig,
+)
+from plugins.scanners.tier2_local_ml.nli_faithfulness_scanner import (
+    NliFaithfulnessConfig,
+    NliFaithfulnessScanner,
 )
 from plugins.scanners.tier2_local_ml.onnx_classifier import (
     ONNXClassifierConfig,
@@ -16,8 +24,12 @@ from plugins.scanners.tier2_local_ml.topic_guard import (
 )
 
 __all__ = [
+    "MultimodalOcrConfig",
+    "MultimodalOcrScanner",
     "NerPiiScanner",
     "NerPiiScannerConfig",
+    "NliFaithfulnessConfig",
+    "NliFaithfulnessScanner",
     "ONNXClassifierConfig",
     "ONNXInjectionClassifier",
     "SafetyToxicityConfig",
@@ -25,4 +37,3 @@ __all__ = [
     "TopicGuardConfig",
     "TopicGuardScanner",
 ]
-

@@ -8,7 +8,7 @@ from core.config import get_settings
 from core.database import close_database
 from core.logger import configure_logging, get_logger
 from core.redis_client import close_redis_client
-from gateways.llm_proxy import llm_proxy_router
+from gateways.llm_proxy import anthropic_proxy_router, gemini_proxy_router, llm_proxy_router
 from gateways.mcp_tool_gateway import tool_gateway_router
 from gateways.pdp_api.routes import (
     api_keys_router,
@@ -77,6 +77,8 @@ def create_app() -> FastAPI:
 
     # Integration Gateways
     app.include_router(llm_proxy_router)
+    app.include_router(anthropic_proxy_router)
+    app.include_router(gemini_proxy_router)
     app.include_router(tool_gateway_router)
 
     return app

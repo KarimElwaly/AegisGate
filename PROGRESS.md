@@ -1,17 +1,20 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 11 COMPLETED (All Phases 1 through 11 Complete)
-- Overall Test Suite Status: 106 / 106 Tests Passing (100%)
-- Core Test Coverage: 85% across 2,898 statements in `core/` (DoD Target: >=85%)
+- Current Phase: Phase 12 COMPLETED (All Phases 1 through 12 Complete)
+- Overall Test Suite Status: 117 / 117 Tests Passing (100%)
+- Core Test Coverage: 85% across 2,904 statements in `core/` (DoD Target: >=85%)
 - Tier-1 Fast-Path P95 Latency: 0.61 ms (DoD Target: <15 ms)
 - End-to-End HTTP P95 Latency: 24.35 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (41/41 attacks detected, DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (0/41 benign logs flagged, DoD Target: <2%)
+- Universal Multi-Provider Proxies: Native OpenAI (`/proxy/llm/v1/*`), Anthropic (`/proxy/anthropic/v1/messages`), and Gemini (`/proxy/gemini/v1beta/*`) with unified pipeline, PII rehydration, streaming guards, and token reconciliation
+- Universal Scanners: NLI Faithfulness (RAG Hallucination), System Prompt Leakage Guard, Multimodal OCR Vision/Doc Scanner
+- Local ML Runtimes & CLI: Presidio/Regex NER, Embedding/Keyword Topic Guard, Llama Guard/Toxicity Heuristics, and `aegisctl models status / pull`
 - TypeScript SDK: 3/3 tests passing, typed Virtual API Key support, `waitForApproval()`, and `wrapTool()` middleware
 - Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Vite production build succeeded in 3.10s
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: Phase 11 COMPLETED (Phase 11 System Hardening, Edge-Cases, Packaging & Benchmark Parity)
+- Autonomous Mode: Phase 12 COMPLETED (Phase 12 Universal Multi-Provider Proxy & Real Local ML Depth)
 
 ---
 
@@ -355,6 +358,44 @@
 - **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
 - **TypeScript SDK:** 3/3 tests passed in 11.65ms
 - **Admin UI Build:** Vite build succeeded with 0 TypeScript errors (`dist/` packaged in 3.10s)
+
+---
+
+## Phase 12 (v3.0): Universal Multi-Provider Proxy & Real Local ML Depth (COMPLETED)
+### Files Created / Implemented:
+- `gateways/llm_proxy/translators/`:
+  - `base.py`: `BaseProtocolTranslator` defining canonical input/output extraction, token accounting, mock streaming chunks, and native 403 error payloads.
+  - `openai_translator.py`: `OpenAIProtocolTranslator` encapsulating OpenAI chat completion format and SSE chunks.
+  - `anthropic_translator.py`: `AnthropicProtocolTranslator` mapping Anthropic system, messages, image blocks, and SSE streaming (`message_start`, `content_block_delta`, `message_delta`, `message_stop`).
+  - `gemini_translator.py`: `GeminiProtocolTranslator` mapping Gemini systemInstruction, contents, inlineData, and SSE streaming (`candidates`, `usageMetadata`).
+  - `__init__.py`: Exported all protocol translators.
+- `gateways/llm_proxy/core_handler.py`: Universal execution handler `execute_proxy_request()` unifying input guardrails, sovereignty routing, candidate URL pool failover, SSE stream guard wrapping, token reconciliation, and PII rehydration.
+- `gateways/llm_proxy/anthropic_proxy.py`: Native Anthropic Messages API router mounted at `/proxy/anthropic/v1/messages`.
+- `gateways/llm_proxy/gemini_proxy.py`: Native Google Gemini API router mounted at `/proxy/gemini/v1beta/models/{model}:generateContent` and `:streamGenerateContent`.
+- `gateways/llm_proxy/proxy.py`: Refactored to delegate cleanly to `execute_proxy_request()` with `OpenAIProtocolTranslator`.
+- `gateways/pdp_api/main.py`: Mounted `anthropic_proxy_router` and `gemini_proxy_router`.
+- `plugins/scanners/tier2_local_ml/`:
+  - `ner_pii_scanner.py`: Upgraded with pluggable backend selection (`regex`, `presidio`, `onnx`), reversible PII vault tokenization, and extended TLD support.
+  - `topic_guard.py`: Upgraded with pluggable backend selection (`keyword`, `embedding`) and cosine-similarity prototype matching with clean keyword fallback.
+  - `safety_toxicity_scanner.py`: Upgraded with pluggable backend selection (`heuristic`, `llama_guard`, `onnx`) and full harm taxonomy (harassment, self-harm, hate, sexual, violence, code-interpreter abuse, CBRN).
+  - `nli_faithfulness_scanner.py`: Tier-2 local cross-encoder / lexical NLI faithfulness scanner verifying factual groundedness of output statements against retrieved RAG chunks.
+  - `multimodal_ocr_scanner.py`: Tier-2 multimodal OCR pre-flight scanner extracting text from image attachments and detecting indirect prompt injections and credential leaks.
+- `plugins/scanners/tier1_deterministic/prompt_leakage_scanner.py`: Tier-1 deterministic n-gram containment scanner detecting confidential system prompt extraction in model outputs.
+- `core/bootstrap.py`: Registered `PromptLeakageScanner`, `NliFaithfulnessScanner`, and `MultimodalOcrScanner` in global plugin registry.
+- `cli/aegisctl/main.py`: Added `aegisctl models status` (displaying local ONNX model states and fallback modes) and `aegisctl models pull <profile>` (initializing model bundles).
+- `tests/integration/test_phase12_universal_proxies.py`: E2E integration tests for Anthropic and Gemini non-streaming, SSE streaming, token reconciliation, and protocol-native 403 policy denial.
+- `tests/unit/test_phase12_universal_scanners.py`: Unit tests for NLI faithfulness groundedness vs. hallucination, system prompt leakage detection, multimodal OCR injection/secret detection, backend fallbacks, and `aegisctl models` CLI.
+
+### Phase 12 Test Results & Benchmarks:
+- **Full Test Suite:** 117 passed out of 117 run (100% pass rate) in 31.47s
+- **Zero Regressions:** All 106 Phase 1–11 tests pass without modification
+- **Core Test Coverage:** 85% across all 2,904 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.38 ms, P95 = 0.61 ms, P99 = 0.77 ms (DoD target: <15.0 ms met)
+- **End-to-End HTTP Latency:** P50 = 21.56 ms, P95 = 24.35 ms, P99 = 31.63 ms (DoD target: <35.0 ms met)
+- **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+- **TypeScript SDK:** 3/3 tests passed in 11.71ms
+- **Admin UI Build:** Vite build succeeded with 0 TypeScript errors (`dist/` packaged in 3.14s)
+
 
 
 

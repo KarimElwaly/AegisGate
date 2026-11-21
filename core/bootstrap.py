@@ -14,10 +14,13 @@ from plugins.scanners.tier1_deterministic.grounding_scanner import EvidenceGroun
 from plugins.scanners.tier1_deterministic.json_schema_scanner import JsonSchemaScanner
 from plugins.scanners.tier1_deterministic.memory_poison_guard import MemoryPoisonGuardScanner
 from plugins.scanners.tier1_deterministic.pii_scanner import PiiScanner
+from plugins.scanners.tier1_deterministic.prompt_leakage_scanner import PromptLeakageScanner
 from plugins.scanners.tier1_deterministic.rag_acl_guard import RagAclGuardScanner
 from plugins.scanners.tier1_deterministic.secrets_scanner import SecretsScanner
 from plugins.scanners.tier1_deterministic.tool_param_guard import ToolParamGuard
+from plugins.scanners.tier2_local_ml.multimodal_ocr_scanner import MultimodalOcrScanner
 from plugins.scanners.tier2_local_ml.ner_pii_scanner import NerPiiScanner
+from plugins.scanners.tier2_local_ml.nli_faithfulness_scanner import NliFaithfulnessScanner
 from plugins.scanners.tier2_local_ml.onnx_classifier import ONNXInjectionClassifier
 from plugins.scanners.tier2_local_ml.safety_toxicity_scanner import SafetyToxicityScanner
 from plugins.scanners.tier2_local_ml.topic_guard import TopicGuardScanner
@@ -41,6 +44,7 @@ def bootstrap_system() -> None:
     # 1. Register Tier-1 Deterministic Scanners
     registry.register_scanner(SecretsScanner())
     registry.register_scanner(PiiScanner())
+    registry.register_scanner(PromptLeakageScanner())
     registry.register_scanner(JsonSchemaScanner())
     registry.register_scanner(ToolParamGuard())
     registry.register_scanner(EntropySizeGuard())
@@ -54,6 +58,8 @@ def bootstrap_system() -> None:
     registry.register_scanner(NerPiiScanner())
     registry.register_scanner(TopicGuardScanner())
     registry.register_scanner(SafetyToxicityScanner())
+    registry.register_scanner(NliFaithfulnessScanner())
+    registry.register_scanner(MultimodalOcrScanner())
 
     # 3. Register Tier-3 Semantic LLM Judge
     registry.register_scanner(LLMJudgeScanner())
