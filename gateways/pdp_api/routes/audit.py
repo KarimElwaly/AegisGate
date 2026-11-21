@@ -3,9 +3,10 @@ import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.audit.exporter import ComplianceAuditExporter
 from core.audit.verifier import AuditVerificationResult, AuditVerifier
 from core.database import db_context
@@ -18,27 +19,41 @@ router = APIRouter(prefix="/v1/audit", tags=["Audit Ledger & Compliance"])
 
 @router.get("/verify", response_model=AuditVerificationResult)
 async def verify_audit_chain(
-    tenant_id: str = Query(default="default", description="Tenant ID to cryptographically verify"),
+    tenant_id: str | None = Query(default=None, description="Tenant ID to cryptographically verify"),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> AuditVerificationResult:
     """
     Cryptographically verifies hash-chain continuity and payload integrity for all audit records
     of a tenant: record_hash == SHA256(prev_hash || canonical_json(record_payload)).
     """
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     verifier = AuditVerifier()
-    return await verifier.verify_tenant_chain(tenant_id=tenant_id)
+    return await verifier.verify_tenant_chain(tenant_id=effective_tenant)
 
 
 @router.get("/export")
 async def export_audit_logs(
-    tenant_id: str = Query(default="default", description="Tenant ID to export"),
+    tenant_id: str | None = Query(default=None, description="Tenant ID to export"),
     format: str = Query(default="jsonl", pattern="^(jsonl|csv)$", description="Export format: jsonl or csv"),
     compliance_tag: str | None = Query(default=None, description="Optional regulatory tag filter (e.g. OWASP-LLM, SOC2)"),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """Exports audit logs in JSONL or CSV with compliance tag filtering."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     exporter = ComplianceAuditExporter()
-    content = await exporter.export(tenant_id=tenant_id, export_format=format, compliance_tag=compliance_tag)
+    content = await exporter.export(tenant_id=effective_tenant, export_format=format, compliance_tag=compliance_tag)
     media_type = "text/csv" if format == "csv" else "application/x-ndjson"
-    filename = f"audit_{tenant_id}_{format}.{format}"
+    filename = f"audit_{effective_tenant}_{format}.{format}"
     return Response(
         content=content,
         media_type=media_type,
@@ -48,15 +63,22 @@ async def export_audit_logs(
 
 @router.get("")
 async def list_audit_records(
-    tenant_id: str = Query(default="default", description="Tenant ID"),
+    tenant_id: str | None = Query(default=None, description="Tenant ID"),
     decision: str | None = Query(default=None, description="Filter by decision"),
     limit: int = Query(default=50, ge=1, le=500, description="Max records to return"),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> list[dict[str, Any]]:
     """Lists audit records for a tenant."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     results: list[dict[str, Any]] = []
     try:
         async with db_context() as session:
-            stmt = select(AuditRecord).where(AuditRecord.tenant_id == tenant_id)
+            stmt = select(AuditRecord).where(AuditRecord.tenant_id == effective_tenant)
             if decision:
                 stmt = stmt.where(AuditRecord.decision == decision)
             stmt = stmt.order_by(AuditRecord.created_at.desc(), AuditRecord.id.desc()).limit(limit)
@@ -97,14 +119,21 @@ async def generate_compliance_report(
         pattern="^(eu-ai-act|hipaa|pci-dss|nist-ai-rmf)$",
         description="Regulatory compliance framework",
     ),
-    tenant_id: str = Query(default="default", description="Tenant ID to audit"),
+    tenant_id: str | None = Query(default=None, description="Tenant ID to audit"),
     format: str = Query(default="json", pattern="^(json|markdown)$", description="Report format: json or markdown"),
     from_date: str | None = Query(default=None),
     to_date: str | None = Query(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """Generates structured auditor evidence package with cryptographic verification certificate."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     verifier = AuditVerifier()
-    verif = await verifier.verify_tenant_chain(tenant_id=tenant_id)
+    verif = await verifier.verify_tenant_chain(tenant_id=effective_tenant)
 
     decision_counts: dict[str, int] = {"ALLOW": 0, "DENY": 0, "MODIFY": 0, "SUSPEND_FOR_APPROVAL": 0}
     control_breakdown: dict[str, int] = {}
@@ -122,7 +151,7 @@ async def generate_compliance_report(
     try:
         async with db_context() as session:
             # 1. Audit decisions
-            stmt = select(AuditRecord).where(AuditRecord.tenant_id == tenant_id)
+            stmt = select(AuditRecord).where(AuditRecord.tenant_id == effective_tenant)
             res = await session.execute(stmt)
             records = res.scalars().all()
 
@@ -142,7 +171,7 @@ async def generate_compliance_report(
                     pass
 
             # 2. HITL Ticket stats
-            ticket_stmt = select(ApprovalTicketRecord).where(ApprovalTicketRecord.tenant_id == tenant_id)
+            ticket_stmt = select(ApprovalTicketRecord).where(ApprovalTicketRecord.tenant_id == effective_tenant)
             ticket_res = await session.execute(ticket_stmt)
             tickets = ticket_res.scalars().all()
             for t in tickets:
@@ -151,7 +180,7 @@ async def generate_compliance_report(
                     hitl_counts[st] += 1
 
             # 3. Discovered shadow assets
-            shadow_stmt = select(func.count(DiscoveredAssetRecord.id)).where(DiscoveredAssetRecord.tenant_id == tenant_id)
+            shadow_stmt = select(func.count(DiscoveredAssetRecord.id)).where(DiscoveredAssetRecord.tenant_id == effective_tenant)
             shadow_res = await session.execute(shadow_stmt)
             shadow_count = shadow_res.scalar() or 0
 
@@ -164,7 +193,7 @@ async def generate_compliance_report(
     report_data = {
         "report_id": report_id,
         "framework": framework,
-        "tenant_id": tenant_id,
+        "tenant_id": effective_tenant,
         "generated_at": generated_at,
         "hash_chain_certificate": {
             "is_valid": verif.is_valid,

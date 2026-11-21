@@ -13,6 +13,7 @@ from core.database import get_db_session
 from core.models.tenant import PluginConfigRecord
 from core.redis_client import get_redis_client
 from core.registry.registry import PluginRegistry, get_plugin_registry
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 from plugins.scanners.webhook_scanner import WebhookScanner
 
 router = APIRouter(prefix="/v1/plugins", tags=["Plugin Registry & Dynamic Control"])
@@ -83,6 +84,16 @@ async def create_plugin_instance(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Plugin config validation failed: {e!s}",
         )
+
+    # Validate potential outbound endpoint URLs for SSRF
+    for url_key in ("endpoint_url", "url", "webhook_url", "url_template"):
+        if url_key in payload.config and isinstance(payload.config[url_key], str):
+            test_url = payload.config[url_key].split("{")[0]
+            if test_url.startswith("http"):
+                try:
+                    await validate_outbound_url(test_url, target_type="plugin_instance_create")
+                except SSRFProtectionError as e:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"SSRF validation failed: {e!s}")
 
     rec_id = str(uuid.uuid4())
     rec = PluginConfigRecord(
@@ -242,6 +253,16 @@ async def test_plugin_connectivity(
     # If it has an endpoint_url in config or payload, attempt HTTP ping
     endpoint = payload.test_payload.get("endpoint_url")
     if endpoint:
+        try:
+            await validate_outbound_url(endpoint, target_type="plugin_test_connectivity")
+        except SSRFProtectionError as e:
+            return {
+                "status": "blocked",
+                "plugin_name": plugin_name,
+                "endpoint": endpoint,
+                "error": f"SSRF validation failed: {e!s}",
+            }
+
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
                 res = await client.get(endpoint)

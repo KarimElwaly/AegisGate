@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.config import get_settings
 from core.pii_vault.vault import get_pii_vault
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
@@ -40,7 +41,7 @@ class PiiScanner(BaseScanner):
     PII_REGEXES = {
         "EMAIL": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
         "PHONE": re.compile(
-            r"\b(?:\+?(\d{1,3}))?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})\b"
+            r"\b(?:\+\d{1,3}[-. ]?)?\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b"
         ),
         "CREDIT_CARD": re.compile(
             r"\b(?:\d{4}[ -]?){3}\d{4}\b"
@@ -93,9 +94,14 @@ class PiiScanner(BaseScanner):
             if not text or not isinstance(text, str):
                 return text
 
-            new_text = text
+            # Bound scan size to prevent memory exhaustion / ReDoS
+            max_len = get_settings().MAX_PAYLOAD_SCAN_BYTES
+            scan_chunk = text[:max_len]
+            tail_chunk = text[max_len:]
+
+            new_text = scan_chunk
             for entity_type, regex in active_checks:
-                for match in regex.finditer(text):
+                for match in regex.finditer(scan_chunk):
                     val = match.group(0)
                     findings.append({
                         "entity_type": entity_type,
@@ -117,7 +123,7 @@ class PiiScanner(BaseScanner):
                         redactions[replacement] = val
 
                     new_text = new_text.replace(val, replacement)
-            return new_text
+            return new_text + tail_chunk
 
         if isinstance(mutated_trusted, str):
             mutated_trusted = await process_text(mutated_trusted)

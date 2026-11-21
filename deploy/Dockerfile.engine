@@ -3,14 +3,25 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
+ARG INSTALL_EXTRAS="cli,oidc,kms"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
+COPY cli/ /build/cli/
+COPY core/ /build/core/
+COPY gateways/ /build/gateways/
+COPY plugins/ /build/plugins/
+
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir .
+    if [ -n "$INSTALL_EXTRAS" ]; then \
+        pip install --no-cache-dir ".[${INSTALL_EXTRAS}]"; \
+    else \
+        pip install --no-cache-dir .; \
+    fi
 
 # Production runtime stage
 FROM python:3.11-slim AS runtime
@@ -19,9 +30,10 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages from builder
+# Copy installed Python packages and console scripts from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
@@ -33,6 +45,7 @@ COPY policy_packs/ /app/policy_packs/
 COPY migrations/ /app/migrations/
 COPY alembic.ini /app/alembic.ini
 COPY pyproject.toml /app/pyproject.toml
+COPY cli/ /app/cli/
 
 # Create non-root user
 RUN useradd -m -u 1000 aegis && \
@@ -42,7 +55,8 @@ USER aegis
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    AEGIS_ENV=prod
+    AEGIS_ENV=prod \
+    PATH="/usr/local/bin:$PATH"
 
 EXPOSE 8000
 
@@ -50,3 +64,4 @@ HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
 CMD ["uvicorn", "gateways.pdp_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+

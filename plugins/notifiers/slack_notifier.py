@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.logger import get_logger
 from core.registry.interfaces import BaseNotifier
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("plugins.notifiers.slack")
 
@@ -55,6 +56,13 @@ class SlackNotifier(BaseNotifier):
         }
         if cfg.channel:
             slack_body["channel"] = cfg.channel
+
+        # SSRF validation
+        try:
+            await validate_outbound_url(cfg.webhook_url, target_type="slack_notifier")
+        except SSRFProtectionError as e:
+            logger.warning("slack_notifier_ssrf_blocked", url=cfg.webhook_url, error=str(e))
+            return False
 
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:

@@ -13,6 +13,7 @@ from core.pii_vault.vault import get_pii_vault
 from core.pipeline.orchestrator import PipelineOrchestrator
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
+from core.telemetry import record_proxy_request
 from gateways.llm_proxy.streaming import SSEStreamGuard
 from gateways.llm_proxy.translators.base import BaseProtocolTranslator
 
@@ -78,6 +79,7 @@ async def execute_proxy_request(
 
     # If DENIED on input, return 403 protocol-native error
     if verdict_input.decision == DecisionEnum.DENY:
+        record_proxy_request(translator.protocol_name, "denied")
         denied_payload = translator.build_policy_denied_response(verdict_input, "input")
         return Response(
             status_code=403,
@@ -140,6 +142,7 @@ async def execute_proxy_request(
             verdict_output = await orchestrator.evaluate(eval_req_output)
 
             if verdict_output.decision == DecisionEnum.DENY:
+                record_proxy_request(translator.protocol_name, "denied")
                 denied_payload = translator.build_policy_denied_response(verdict_output, "output")
                 return Response(
                     status_code=403,
@@ -171,6 +174,7 @@ async def execute_proxy_request(
                 except Exception:
                     pass
 
+            record_proxy_request(translator.protocol_name, "success")
             return Response(
                 content=json.dumps(mock_resp),
                 status_code=200,

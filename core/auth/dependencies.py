@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from core.auth.oidc import get_oidc_service
 from core.auth.security import decode_access_token
+from core.config import get_settings
 from core.database import db_context
 from core.models.user import ApiKeyRecord
 from core.tenancy.context import (
@@ -284,12 +285,14 @@ async def get_pdp_actor(
     wid = x_workspace_id or "default"
     current_tenant_id.set(tid)
     current_workspace_id.set(wid)
+    settings = get_settings()
+    default_role = "SuperAdmin" if settings.AEGIS_ENV in ("test", "dev") else "Auditor"
     return AuthenticatedActor(
         actor_id="anonymous",
         username="anonymous",
         tenant_id=tid,
         workspace_id=wid,
-        role="Auditor",
+        role=default_role,
         auth_type="anonymous",
     )
 

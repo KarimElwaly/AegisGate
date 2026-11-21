@@ -1,11 +1,12 @@
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.database import get_db_session
 from core.logger import get_logger
 from core.models.policy import PolicyPackRecord
@@ -38,8 +39,15 @@ async def create_or_update_policy(
     payload: PolicyCreatePayload,
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> dict[str, Any]:
     """Upload, validate, and store a new version of a Policy Pack."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and payload.tenant_id:
+        effective_tenant = payload.tenant_id
+    elif payload.tenant_id and payload.tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+    payload.tenant_id = effective_tenant
     try:
         raw_dict = yaml.safe_load(payload.yaml_content)
         parsed_pack = PolicyPackDefinition(**raw_dict)
@@ -102,13 +110,20 @@ async def create_or_update_policy(
 
 @router.get("", response_model=list[dict[str, Any]])
 async def list_policies(
-    tenant_id: str = "default",
+    tenant_id: str | None = Query(default=None),
     status: str | None = None,
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> list[dict[str, Any]]:
     """List policy packs for a given tenant."""
-    query = select(PolicyPackRecord).where(PolicyPackRecord.tenant_id == tenant_id)
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
+    query = select(PolicyPackRecord).where(PolicyPackRecord.tenant_id == effective_tenant)
     if status:
         query = query.where(PolicyPackRecord.status == status)
     query = query.order_by(desc(PolicyPackRecord.created_at))
@@ -154,11 +169,18 @@ async def list_policies(
 @router.get("/{pack_id}", response_model=dict[str, Any])
 async def get_policy_pack(
     pack_id: str,
-    tenant_id: str = "default",
+    tenant_id: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> dict[str, Any]:
     """Get active policy pack details."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     # Check in-memory engine first
     in_mem = engine.get_policy_pack(pack_id)
     if in_mem:
@@ -168,7 +190,7 @@ async def get_policy_pack(
     stmt = (
         select(PolicyPackRecord)
         .where(
-            PolicyPackRecord.tenant_id == tenant_id,
+            PolicyPackRecord.tenant_id == effective_tenant,
             PolicyPackRecord.pack_id == pack_id,
             PolicyPackRecord.status == "active",
         )
@@ -182,7 +204,7 @@ async def get_policy_pack(
         stmt = (
             select(PolicyPackRecord)
             .where(
-                PolicyPackRecord.tenant_id == tenant_id,
+                PolicyPackRecord.tenant_id == effective_tenant,
                 PolicyPackRecord.pack_id == pack_id,
             )
             .order_by(desc(PolicyPackRecord.created_at))
@@ -206,14 +228,21 @@ async def get_policy_pack(
 @router.get("/{pack_id}/versions", response_model=list[dict[str, Any]])
 async def get_policy_versions(
     pack_id: str,
-    tenant_id: str = "default",
+    tenant_id: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db_session),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> list[dict[str, Any]]:
     """Get version history for a policy pack."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     stmt = (
         select(PolicyPackRecord)
         .where(
-            PolicyPackRecord.tenant_id == tenant_id,
+            PolicyPackRecord.tenant_id == effective_tenant,
             PolicyPackRecord.pack_id == pack_id,
         )
         .order_by(desc(PolicyPackRecord.created_at))
@@ -237,14 +266,21 @@ async def get_policy_versions(
 async def promote_policy_version(
     pack_id: str,
     payload: PolicyPromotePayload,
-    tenant_id: str = "default",
+    tenant_id: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> dict[str, Any]:
     """Promote a policy version: draft -> shadow -> active (1-click lifecycle)."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     # Find the target version
     stmt = select(PolicyPackRecord).where(
-        PolicyPackRecord.tenant_id == tenant_id,
+        PolicyPackRecord.tenant_id == effective_tenant,
         PolicyPackRecord.pack_id == pack_id,
         PolicyPackRecord.version == payload.version,
     )
@@ -262,7 +298,7 @@ async def promote_policy_version(
         await db.execute(
             update(PolicyPackRecord)
             .where(
-                PolicyPackRecord.tenant_id == tenant_id,
+                PolicyPackRecord.tenant_id == effective_tenant,
                 PolicyPackRecord.pack_id == pack_id,
                 PolicyPackRecord.status == "active",
             )
@@ -287,13 +323,20 @@ async def promote_policy_version(
 async def rollback_policy_version(
     pack_id: str,
     payload: PolicyRollbackPayload,
-    tenant_id: str = "default",
+    tenant_id: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db_session),
     engine: YamlPolicyEngine = Depends(get_yaml_policy_engine),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> dict[str, Any]:
     """1-click rollback: Demotes current active version and activates target_version."""
+    effective_tenant = actor.tenant_id
+    if actor.role == "SuperAdmin" and tenant_id:
+        effective_tenant = tenant_id
+    elif tenant_id and tenant_id != actor.tenant_id and actor.role != "SuperAdmin":
+        raise HTTPException(status_code=403, detail="Cross-tenant access forbidden")
+
     stmt = select(PolicyPackRecord).where(
-        PolicyPackRecord.tenant_id == tenant_id,
+        PolicyPackRecord.tenant_id == effective_tenant,
         PolicyPackRecord.pack_id == pack_id,
         PolicyPackRecord.version == payload.target_version,
     )
@@ -310,7 +353,7 @@ async def rollback_policy_version(
     await db.execute(
         update(PolicyPackRecord)
         .where(
-            PolicyPackRecord.tenant_id == tenant_id,
+            PolicyPackRecord.tenant_id == effective_tenant,
             PolicyPackRecord.pack_id == pack_id,
             PolicyPackRecord.status == "active",
         )

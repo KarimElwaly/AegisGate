@@ -1,0 +1,29 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-engine
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: engine
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.engine.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "aegisgate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: engine
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "aegisgate.fullname" . }}-dashboard
+  labels:
+    {{- include "aegisgate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dashboard
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.dashboard.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "aegisgate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dashboard
+{{- end }}

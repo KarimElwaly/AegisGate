@@ -10,6 +10,7 @@ from core.logger import get_logger
 from core.redis_client import get_redis_client
 from core.registry.interfaces import BaseContextResolver
 from core.schemas.events import EvaluationRequest
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("plugins.resolvers.http")
 
@@ -59,6 +60,14 @@ class HTTPContextResolver(BaseContextResolver):
             return {}
 
         url = self._format_template(cfg.url_template, request)
+
+        # SSRF validation
+        try:
+            await validate_outbound_url(url, target_type="http_resolver")
+        except SSRFProtectionError as e:
+            logger.warning("http_resolver_ssrf_blocked", url=url, error=str(e))
+            return cfg.fallback_response
+
         cache_key = f"aegisgate:ctx:http:{hashlib.sha256(url.encode()).hexdigest()[:16]}"
 
         # 1. Check Redis cache

@@ -149,7 +149,8 @@ class AuditVerifier:
                 # 3. Check KMS HMAC signature if present
                 if rec.kms_signature:
                     key_provider = get_key_provider()
-                    if not key_provider.verify_hmac(rec.record_hash, rec.kms_signature):
+                    key_ver = getattr(rec, "kms_key_version", None)
+                    if not key_provider.verify_hmac(rec.record_hash, rec.kms_signature, key_version=key_ver):
                         tampered_ids.append(rec.id)
                         logger.error(
                             "audit_kms_signature_invalid",

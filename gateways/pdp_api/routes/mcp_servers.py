@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.database import get_db_session
 from core.models.mcp import McpToolPinRecord, UpstreamMcpServerRecord
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 router = APIRouter(prefix="/v1/mcp", tags=["MCP Server & Tool Governance"])
 
@@ -44,6 +45,11 @@ async def register_mcp_server(
     db: AsyncSession = Depends(get_db_session),
 ):
     """Register an upstream MCP server."""
+    try:
+        await validate_outbound_url(payload.server_url, target_type="mcp_server_registration")
+    except SSRFProtectionError as e:
+        raise HTTPException(status_code=400, detail=f"SSRF validation failed for server_url: {e!s}")
+
     tenant_id = actor.tenant_id
     server_id = str(uuid.uuid4())
     server = UpstreamMcpServerRecord(

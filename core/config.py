@@ -17,10 +17,22 @@ class Settings(BaseSettings):
     AEGIS_PORT: int = 8088
     AEGIS_LOG_LEVEL: str = "INFO"
 
-    # Security
+    # Security & SSRF
     AEGIS_SECRET_KEY: str = "default-dev-secret-key-32-bytes-minimum-length-012345"
     AEGIS_JWT_ALGORITHM: str = "HS256"
     AEGIS_JWT_EXPIRY_MINUTES: int = 1440
+    AEGIS_SSRF_ALLOWLIST_CIDRS: list[str] = []
+    MAX_PAYLOAD_SCAN_BYTES: int = 1048576  # 1MB limit for scanner protection
+    MAX_JSON_DEPTH: int = 20
+
+    # Enterprise KMS
+    AEGIS_KMS_PROVIDER: str = "local"
+    AEGIS_KMS_MASTER_KEY: str = ""
+    AEGIS_KMS_ACTIVE_VERSION: str = "v1"
+    VAULT_ADDR: str = "http://localhost:8200"
+    VAULT_TOKEN: str = "root"
+    VAULT_TRANSIT_KEY: str = "aegisgate-transit"
+    AWS_KMS_KEY_ID: str = ""
 
     # Persistence
     DATABASE_URL: str = "sqlite+aiosqlite:///./aegisgate.db"

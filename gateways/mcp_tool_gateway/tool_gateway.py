@@ -13,6 +13,8 @@ from core.models.mcp import McpToolPinRecord, UpstreamMcpServerRecord
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
+from core.telemetry import record_proxy_request
 
 logger = get_logger("gateways.tool_gateway")
 router = APIRouter(prefix="/proxy", tags=["Tool & MCP Gateway"])
@@ -88,6 +90,7 @@ async def execute_tool_proxy(
     pre_verdict = await orchestrator.evaluate(pre_req)
 
     if pre_verdict.decision == DecisionEnum.DENY:
+        record_proxy_request("mcp_tool", "denied")
         reason = pre_verdict.triggered_rules[0].reason if pre_verdict.triggered_rules else "Tool Pre-Call Denied"
         return Response(
             status_code=403,
@@ -127,6 +130,15 @@ async def execute_tool_proxy(
     tool_result: Any = None
     if x_aegis_upstream_url:
         try:
+            await validate_outbound_url(x_aegis_upstream_url, target_type="tool_gateway")
+        except SSRFProtectionError as ssrf_err:
+            return Response(
+                status_code=400,
+                media_type="application/json",
+                content=json.dumps({"error": {"message": f"Invalid upstream tool URL: {ssrf_err!s}", "type": "ssrf_violation"}}),
+            )
+
+        try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(x_aegis_upstream_url, json={"parameters": effective_params})
                 tool_result = resp.json() if "application/json" in resp.headers.get("content-type", "") else resp.text
@@ -157,6 +169,7 @@ async def execute_tool_proxy(
     post_verdict = await orchestrator.evaluate(post_req)
 
     if post_verdict.decision == DecisionEnum.DENY:
+        record_proxy_request("mcp_tool", "denied")
         reason = post_verdict.triggered_rules[0].reason if post_verdict.triggered_rules else "Tool Post-Call Denied"
         return Response(
             status_code=403,
@@ -175,6 +188,7 @@ async def execute_tool_proxy(
     # If post-call mutated content (e.g. PII redaction or secret masking)
     final_output = post_verdict.mutated_content.get("untrusted_data", tool_result) if post_verdict.mutated_content else tool_result
 
+    record_proxy_request("mcp_tool", "success")
     return Response(
         status_code=200,
         media_type="application/json",

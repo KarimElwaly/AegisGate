@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from core.config import get_settings
 from core.logger import get_logger
+from core.pipeline.canonicalizer import canonicalize_request
 from core.pipeline.stages.stage_context import PipelineStageContext
 from core.registry.interfaces import BaseScanner, DefaultPluginConfig, ScannerResult
 from core.registry.registry import PluginRegistry
@@ -103,6 +104,9 @@ class TieredScannerStage:
         ctx.redaction_map = {}
         short_circuit = False
 
+        # Input Canonicalization & De-Obfuscation for scanner inspection
+        scan_req = canonicalize_request(req)
+
         for tier in (1, 2, 3):
             scanners = tier_scanners.get(tier, [])
             if not scanners or short_circuit:
@@ -119,7 +123,7 @@ class TieredScannerStage:
                 tasks.append(
                     self.execute_scanner(
                         scanner=s,
-                        request=req,
+                        request=scan_req,
                         context=ctx.resolved_context,
                         typed_config=typed_cfg,
                         timeout_ms=timeout_ms,

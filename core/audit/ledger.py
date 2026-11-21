@@ -132,7 +132,9 @@ class AuditLedger:
 
             canonical_payload_str = canonical_json(record_payload)
             record_hash = compute_sha256(prev_hash + canonical_payload_str)
-            kms_sig = get_key_provider().sign_hmac(record_hash)
+            kms_provider = get_key_provider()
+            kms_sig = kms_provider.sign_hmac(record_hash)
+            kms_key_version = kms_provider.current_key_version()
 
             record = AuditRecord(
                 id=record_id,
@@ -156,6 +158,7 @@ class AuditLedger:
                 prev_hash=prev_hash,
                 record_hash=record_hash,
                 kms_signature=kms_sig,
+                kms_key_version=kms_key_version,
                 created_at=created_at,
             )
             s.add(record)

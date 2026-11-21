@@ -2,6 +2,19 @@ global:
   environment: production
   imagePullSecrets: []
 
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+secrets:
+  existingSecret: ""
+  data:
+    JWT_SECRET: "change-this-in-production-jwt-secret-min-32-bytes"
+    DATABASE_PASSWORD: "aegis_password"
+    REDIS_PASSWORD: "redis_password"
+    AEGIS_KMS_MASTER_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 engine:
   replicaCount: 3
   image:
@@ -45,6 +58,11 @@ dashboard:
   service:
     type: ClusterIP
     port: 80
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
   resources:
     limits:
       cpu: 500m
@@ -52,6 +70,13 @@ dashboard:
     requests:
       cpu: 100m
       memory: 128Mi
+
+podDisruptionBudget:
+  enabled: true
+  engine:
+    minAvailable: 1
+  dashboard:
+    minAvailable: 1
 
 ingress:
   enabled: true

@@ -32,6 +32,7 @@ class AuditRecord(Base):
     prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     record_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     kms_signature: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    kms_key_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.datetime.utcnow, index=True

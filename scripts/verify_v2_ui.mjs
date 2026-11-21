@@ -24,6 +24,22 @@ async function runV2UITest() {
   console.log('[Test 1] Navigating to http://localhost:3088...');
   await page.goto('http://localhost:3088/', { waitUntil: 'networkidle' });
   await page.waitForTimeout(1000);
+
+  // Authenticate if LoginView is rendered
+  const loginButton = page.locator('button:has-text("Sign In"), button:has-text("Login")');
+  if (await loginButton.count() > 0) {
+    console.log('   [*] Login view detected. Authenticating as admin...');
+    const userInputs = page.locator('input[type="text"], input:not([type="password"])');
+    if (await userInputs.count() > 0) {
+      await userInputs.first().fill('admin');
+    }
+    const pwdInput = page.locator('input[type="password"]');
+    if (await pwdInput.count() > 0) {
+      await pwdInput.first().fill('admin123');
+    }
+    await loginButton.first().click();
+    await page.waitForTimeout(1000);
+  }
   console.log('   [+] Dashboard loaded successfully.');
 
   // 2. Policy Pack Studio & Draft Modal

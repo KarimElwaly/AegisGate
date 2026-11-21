@@ -6,6 +6,7 @@ from core.audit.ledger import AuditLedger
 from core.governance.budgets import get_budget_manager
 from core.logger import get_logger
 from core.pii_vault.vault import get_pii_vault
+from core.telemetry import record_proxy_request
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
 from core.schemas.verdicts import EvaluationVerdict, TriggeredRule
@@ -22,14 +23,22 @@ class SSEStreamGuard:
     and reconciles token balances against Redis budgets.
     """
 
-    SECRET_PATTERN = re.compile(r"AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA )?PRIVATE KEY-----")
+    SECRET_PATTERN = re.compile(
+        r"AKIA[0-9A-Z]{16}"
+        r"|-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+        r"|sk-proj-[A-Za-z0-9_-]{32,}"
+        r"|sk-[A-Za-z0-9]{32,}"
+        r"|ghp_[A-Za-z0-9]{36}"
+        r"|xox[baprs]-[A-Za-z0-9-]{10,}"
+        r"|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9._-]{15,}\.[A-Za-z0-9_-]{15,}"
+    )
 
     def __init__(
         self,
         tenant_id: str,
         session_id: str,
         rehydrate_pii: bool = True,
-        buffer_window_size: int = 64,
+        buffer_window_size: int = 256,
         estimated_prompt_tokens: int = 15,
         actor_id: str = "llm_client",
         actor_role: str = "user",
@@ -47,6 +56,8 @@ class SSEStreamGuard:
         self.policy_pack_id = policy_pack_id
 
         self.rolling_buffer = ""
+        self.tail_overlap = ""
+        self.partial_pii_tail = ""
         self.streamed_characters = 0
         self.exact_usage: dict[str, int] | None = None
         self._reconciled = False
@@ -87,11 +98,12 @@ class SSEStreamGuard:
                             content_piece = delta.get("content", "")
 
                             if content_piece:
-                                self.rolling_buffer += content_piece
                                 self.streamed_characters += len(content_piece)
+                                combined_window = self.tail_overlap + content_piece
+                                self.rolling_buffer += content_piece
 
-                                # Check for secret exfiltration in rolling window
-                                if self.SECRET_PATTERN.search(self.rolling_buffer):
+                                # Check for secret exfiltration across split-token chunk boundary
+                                if self.SECRET_PATTERN.search(combined_window):
                                     logger.critical(
                                         "Mid-stream secret leak detected in SSE stream! Aborting...",
                                         session_id=self.session_id,
@@ -112,17 +124,34 @@ class SSEStreamGuard:
                                     yield f"data: {json.dumps(abort_chunk)}\n\ndata: [DONE]\n\n".encode()
                                     return
 
-                                # Rehydrate PII tokens if present
-                                if self.rehydrate_pii and "<AEGIS_" in content_piece:
-                                    rehydrated = await self.vault.rehydrate(
-                                        self.tenant_id, self.session_id, content_piece
-                                    )
-                                    delta["content"] = rehydrated
-                                    line = f"data: {json.dumps(chunk_obj)}\n\n"
+                                # Handle PII rehydration across split chunks
+                                piece_to_emit = content_piece
+                                if self.rehydrate_pii:
+                                    rehydrate_target = self.partial_pii_tail + content_piece
+                                    self.partial_pii_tail = ""
 
-                                # Maintain rolling window buffer size
+                                    if "<AEGIS_" in rehydrate_target:
+                                        # If ends with an unclosed tag prefix like '<AEGIS_PII_123', buffer the tail
+                                        tag_start = rehydrate_target.rfind("<AEGIS_")
+                                        tag_end = rehydrate_target.find(">", tag_start)
+                                        if tag_end == -1:
+                                            # Tag incomplete, buffer it
+                                            self.partial_pii_tail = rehydrate_target[tag_start:]
+                                            rehydrate_target = rehydrate_target[:tag_start]
+
+                                        if rehydrate_target:
+                                            rehydrate_target = await self.vault.rehydrate(
+                                                self.tenant_id, self.session_id, rehydrate_target
+                                            )
+                                    piece_to_emit = rehydrate_target
+
+                                delta["content"] = piece_to_emit
+                                line = f"data: {json.dumps(chunk_obj)}\n\n"
+
+                                # Update sliding overlap tail buffer
+                                self.tail_overlap = combined_window[-self.buffer_window_size:]
                                 if len(self.rolling_buffer) > self.buffer_window_size:
-                                    self.rolling_buffer = self.rolling_buffer[-self.buffer_window_size :]
+                                    self.rolling_buffer = self.rolling_buffer[-self.buffer_window_size:]
 
                         yield line.encode("utf-8")
                     except json.JSONDecodeError:
@@ -133,6 +162,7 @@ class SSEStreamGuard:
 
     async def _handle_mid_stream_abort(self) -> None:
         """Records an audit event and reconciles partial token burn on mid-stream violation."""
+        record_proxy_request("streaming", "aborted")
         partial_tokens = (
             self.exact_usage.get("total_tokens")
             if self.exact_usage
@@ -212,3 +242,5 @@ class SSEStreamGuard:
                 )
             except Exception:
                 pass
+
+        record_proxy_request("streaming", "completed")

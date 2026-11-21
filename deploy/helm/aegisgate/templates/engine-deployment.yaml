@@ -17,6 +17,7 @@ spec:
         {{- include "aegisgate.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: engine
     spec:
+      serviceAccountName: {{ include "aegisgate.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.engine.securityContext | nindent 8 }}
       containers:
@@ -31,7 +32,7 @@ spec:
             - configMapRef:
                 name: {{ include "aegisgate.fullname" . }}-config
             - secretRef:
-                name: {{ include "aegisgate.fullname" . }}-secrets
+                name: {{ include "aegisgate.secretName" . }}
           livenessProbe:
             httpGet:
               path: /healthz

@@ -9,13 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 
 class WebhookScannerConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     enabled: bool = True
-    endpoint_url: str = "http://localhost:9000/scan"
+    endpoint_url: str = ""
     secret_key: str = "default-webhook-secret"
     timeout_ms: int = 500
     on_timeout: str = "flag"  # "allow" | "deny" | "flag"
@@ -44,6 +45,19 @@ class WebhookScanner(BaseScanner):
         cfg = config if isinstance(config, WebhookScannerConfig) else WebhookScannerConfig(**config.model_dump())
         if not cfg.enabled or not cfg.endpoint_url:
             return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
+
+        # SSRF validation on target endpoint
+        try:
+            await validate_outbound_url(cfg.endpoint_url, target_type="webhook_scanner")
+        except SSRFProtectionError as ssrf_err:
+            return ScannerResult(
+                scanner_name=self.name,
+                tier=self.tier,
+                status="block",
+                score=1.0,
+                details={"error": "ssrf_violation", "message": str(ssrf_err)},
+                message=f"SSRF violation: {ssrf_err!s}",
+            )
 
         payload = {
             "request_id": request.request_id,

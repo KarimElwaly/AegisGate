@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.config import get_settings
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
 
@@ -39,6 +40,7 @@ class SecretsScanner(BaseScanner):
         "generic_api_key": re.compile(
             r"(?i)\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret[_-]?key)\s*[:=]\s*['\"]?([A-Za-z0-9_\-]{20,})['\"]?\b"
         ),
+        "openai_api_key": re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),
     }
 
     async def scan(
@@ -67,6 +69,7 @@ class SecretsScanner(BaseScanner):
 
         for source_name, text in texts_to_check:
             current_text = text
+            scan_text = text[:get_settings().MAX_PAYLOAD_SCAN_BYTES]
             for pattern_name, regex in self.PATTERNS.items():
                 if pattern_name == "pem_private_key" and not cfg.detect_private_keys:
                     continue
@@ -77,7 +80,7 @@ class SecretsScanner(BaseScanner):
                 if pattern_name == "generic_api_key" and not cfg.detect_generic_api_keys:
                     continue
 
-                for match in regex.finditer(text):
+                for match in regex.finditer(scan_text):
                     secret_val = match.group(0)
                     matches_found.append({
                         "source": source_name,

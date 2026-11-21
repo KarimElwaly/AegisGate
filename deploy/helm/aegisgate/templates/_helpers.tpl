@@ -39,3 +39,22 @@ app.kubernetes.io/name: {{ include "aegisgate.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "aegisgate.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "aegisgate.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create the name of the secret to use
+*/}}
+{{- define "aegisgate.secretName" -}}
+{{- default (printf "%s-secrets" (include "aegisgate.fullname" .)) .Values.secrets.existingSecret }}
+{{- end }}
+
+

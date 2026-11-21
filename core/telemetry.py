@@ -47,6 +47,24 @@ QUARANTINED_TOOL_GAUGE = Gauge(
     ["tenant_id"],
 )
 
+PROXY_REQUESTS_COUNTER = Counter(
+    "aegis_proxy_requests_total",
+    "Total LLM and tool proxy requests processed",
+    ["provider", "status"],
+)
+
+KMS_OPS_COUNTER = Counter(
+    "aegis_kms_ops_total",
+    "Total KMS cryptographic operations performed",
+    ["operation", "status"],
+)
+
+SSRF_BLOCKS_COUNTER = Counter(
+    "aegis_ssrf_blocks_total",
+    "Total outbound SSRF attempts blocked",
+    ["target_type"],
+)
+
 
 def record_evaluation_metric(tenant_id: str, stage: str, decision: str, latency_seconds: float) -> None:
     try:
@@ -68,4 +86,25 @@ def record_token_metric(tenant_id: str, model: str, tokens: int) -> None:
         TOKEN_USAGE_COUNTER.labels(tenant_id=tenant_id, model=model).inc(tokens)
     except Exception as e:
         logger.debug("token_telemetry_failed", error=str(e))
+
+
+def record_proxy_request(provider: str, status: str) -> None:
+    try:
+        PROXY_REQUESTS_COUNTER.labels(provider=provider, status=status).inc()
+    except Exception as e:
+        logger.debug("proxy_request_telemetry_failed", error=str(e))
+
+
+def record_kms_op(operation: str, status: str) -> None:
+    try:
+        KMS_OPS_COUNTER.labels(operation=operation, status=status).inc()
+    except Exception as e:
+        logger.debug("kms_op_telemetry_failed", error=str(e))
+
+
+def record_ssrf_block(target_type: str = "outbound_request") -> None:
+    try:
+        SSRF_BLOCKS_COUNTER.labels(target_type=target_type).inc()
+    except Exception as e:
+        logger.debug("ssrf_block_telemetry_failed", error=str(e))
 

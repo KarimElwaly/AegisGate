@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core.config import get_settings
 from core.logger import get_logger
+from core.telemetry import record_kms_op
 
 logger = get_logger("core.crypto.kms")
 
@@ -40,7 +41,7 @@ class KeyProvider(ABC):
         pass
 
     @abstractmethod
-    def verify_hmac(self, data: str, signature: str) -> bool:
+    def verify_hmac(self, data: str, signature: str, key_version: str | None = None) -> bool:
         """Verifies an HMAC signature against data in constant time."""
         pass
 
@@ -99,19 +100,30 @@ class LocalEnvKeyProvider(KeyProvider):
         return pt.decode("utf-8")
 
     def sign_hmac(self, data: str) -> str:
+        record_kms_op("sign_hmac", "success")
         version = self._active_version
         key = self._derive_key_for_version(version)
         mac = hmac.new(key, data.encode("utf-8"), hashlib.sha256).hexdigest()
         return f"{version}:{mac}"
 
-    def verify_hmac(self, data: str, signature: str) -> bool:
-        if not signature or ":" not in signature:
+    def verify_hmac(self, data: str, signature: str, key_version: str | None = None) -> bool:
+        if not signature:
+            record_kms_op("verify_hmac", "invalid")
             return False
-        parts = signature.split(":", 1)
-        version, expected_mac = parts[0], parts[1]
+        version = key_version
+        expected_mac = signature
+        if ":" in signature:
+            parts = signature.split(":", 1)
+            version = parts[0]
+            expected_mac = parts[1]
+        elif not version:
+            version = self._active_version
+
         key = self._derive_key_for_version(version)
         actual_mac = hmac.new(key, data.encode("utf-8"), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(actual_mac, expected_mac)
+        valid = hmac.compare_digest(actual_mac, expected_mac)
+        record_kms_op("verify_hmac", "success" if valid else "failed")
+        return valid
 
 
 class HashiCorpVaultKeyProvider(KeyProvider):
@@ -142,8 +154,8 @@ class HashiCorpVaultKeyProvider(KeyProvider):
     def sign_hmac(self, data: str) -> str:
         return self._fallback.sign_hmac(data)
 
-    def verify_hmac(self, data: str, signature: str) -> bool:
-        return self._fallback.verify_hmac(data, signature)
+    def verify_hmac(self, data: str, signature: str, key_version: str | None = None) -> bool:
+        return self._fallback.verify_hmac(data, signature, key_version)
 
 
 class AWSKMSKeyProvider(KeyProvider):
@@ -171,8 +183,8 @@ class AWSKMSKeyProvider(KeyProvider):
     def sign_hmac(self, data: str) -> str:
         return self._fallback.sign_hmac(data)
 
-    def verify_hmac(self, data: str, signature: str) -> bool:
-        return self._fallback.verify_hmac(data, signature)
+    def verify_hmac(self, data: str, signature: str, key_version: str | None = None) -> bool:
+        return self._fallback.verify_hmac(data, signature, key_version)
 
 
 _global_key_provider: KeyProvider | None = None

@@ -60,17 +60,19 @@ class ToolParamGuard(BaseScanner):
         params = request.action.parameters or {}
         violations: list[dict[str, Any]] = []
 
-        def inspect_value(param_key: str, val: Any) -> None:
+        def inspect_value(param_key: str, val: Any, depth: int = 0) -> None:
+            if depth > 20:
+                return
             if isinstance(val, dict):
                 for k, v in val.items():
-                    inspect_value(f"{param_key}.{k}", v)
+                    inspect_value(f"{param_key}.{k}", v, depth=depth + 1)
                 return
             if isinstance(val, list):
                 for idx, v in enumerate(val):
-                    inspect_value(f"{param_key}[{idx}]", v)
+                    inspect_value(f"{param_key}[{idx}]", v, depth=depth + 1)
                 return
 
-            str_val = str(val)
+            str_val = str(val)[:1048576]
 
             # 1. Path traversal check
             if cfg.block_path_traversal and self.PATH_TRAVERSAL_REGEX.search(str_val):

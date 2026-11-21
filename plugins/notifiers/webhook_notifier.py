@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.logger import get_logger
 from core.registry.interfaces import BaseNotifier
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("plugins.notifiers.webhook")
 
@@ -42,6 +43,13 @@ class WebhookNotifier(BaseNotifier):
         if cfg.secret:
             sig = hmac.new(cfg.secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
             headers["X-Aegis-Signature"] = f"sha256={sig}"
+
+        # SSRF validation
+        try:
+            await validate_outbound_url(cfg.endpoint_url, target_type="webhook_notifier")
+        except SSRFProtectionError as e:
+            logger.warning("webhook_notifier_ssrf_blocked", url=cfg.endpoint_url, error=str(e))
+            return False
 
         try:
             async with httpx.AsyncClient(timeout=cfg.timeout_seconds) as client:

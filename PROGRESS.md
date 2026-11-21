@@ -404,6 +404,77 @@
 - **TypeScript SDK:** 3/3 tests passed in 12.10ms
 - **Admin UI Build:** Vite build succeeded with 0 TypeScript errors (`dist/` packaged in 3.33s)
 
+---
+
+## Phase 14 (v3.2): Security Self-Defense, Production Wiring & Verification Sprint (COMPLETED)
+
+### Audit & Security Findings Addressed:
+1. **Input Canonicalization & De-Obfuscation:**
+   - Implemented `core/pipeline/canonicalizer.py`:
+     - Strips zero-width & invisible Unicode control characters (`U+200B`–`U+200F`, `U+202A`–`U+202E`, `U+FEFF`, `U+2060`–`U+2064`, `U+00AD`).
+     - Normalizes NFKC + cross-script visual confusable homoglyphs (Cyrillic and Greek lookalikes to Latin letters via `HOMOGLYPH_MAP`).
+     - Decodes Base64, Hex (`\x..` and standalone), and URL-encoded strings up to depth=2 and max 65KB bytes to prevent expansion/zip bombs.
+     - Implemented `canonicalize_text(text)` and `canonicalize_request(request)`.
+   - Wired into `core/pipeline/stages/tiered_scanner_stage.py`: creates `scan_req = canonicalize_request(req)` for scanner execution while preserving raw `ctx.request` for downstream forwarding unless mutated.
+2. **Outbound SSRF Protection:**
+   - Implemented `core/security/ssrf.py`:
+     - Centralized async URL/IP validator `validate_outbound_url()` that blocks loopback (`127.0.0.0/8`, `::1`), link-local / cloud metadata (`169.254.0.0/16`, `fe80::/10`), private RFC1918/ULA (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`), and non-HTTP(S) schemes.
+     - Supports explicit CIDR override via `allowlist_cidrs` and `AEGIS_SSRF_ALLOWLIST_CIDRS`.
+     - Emits Prometheus telemetry `record_ssrf_block()`.
+   - Enforced `validate_outbound_url` across:
+     - `plugins/scanners/webhook_scanner.py`
+     - `plugins/resolvers/http_resolver.py`
+     - `plugins/notifiers/webhook_notifier.py` and `slack_notifier.py`
+     - `gateways/mcp_tool_gateway/tool_gateway.py` (`x_aegis_upstream_url`)
+     - `gateways/pdp_api/routes/mcp_servers.py` (`server_url`)
+     - `gateways/pdp_api/routes/plugins.py` (`/test` endpoint and `create_plugin_instance`)
+3. **Cross-Tenant IDOR & Strict Scoping:**
+   - Audited and enforced tenant scoping across:
+     - `gateways/pdp_api/routes/approvals.py`: tenant matching on list, get, and decide approval tickets.
+     - `gateways/pdp_api/routes/audit.py`: tenant matching on `/verify`, `/export`, `""`, and `/compliance-report`.
+     - `gateways/pdp_api/routes/policies.py`: tenant matching on draft create, list, get versions, promote, and rollback.
+     - `gateways/pdp_api/routes/simulate.py`: tenant matching on shadow deltas and historical replay.
+     - `gateways/pdp_api/routes/kill_switch.py`: tenant matching and preventing non-SuperAdmins from tripping global scope or other tenants' kill switches.
+4. **Streaming Split-Token & ReDoS Hardening:**
+   - Updated `gateways/llm_proxy/streaming.py`:
+     - Expanded `SECRET_PATTERN` to cover AWS keys, private keys, OpenAI keys (`sk-proj-...`, `sk-...`), GitHub tokens (`ghp_...`), Slack tokens (`xoxb-...`), and JWTs.
+     - Increased buffer window to 256 chars, added `tail_overlap` across chunk boundaries for sliding overlap detection.
+     - Added split-chunk PII tag rehydration buffering (`partial_pii_tail`).
+   - Hardened Tier-1 regex scanners:
+     - `plugins/scanners/tier1_deterministic/pii_scanner.py`: bounded payload scan to `MAX_PAYLOAD_SCAN_BYTES` (1MB), simplified phone regex to prevent ReDoS.
+     - `plugins/scanners/tier1_deterministic/secrets_scanner.py`: bounded payload scan, added `openai_api_key` regex.
+     - `plugins/scanners/tier1_deterministic/tool_param_guard.py`: recursion depth limit `depth > 20` and bounded string slicing.
+5. **KMS Key Rotation & Historical Verification:**
+   - Added `kms_key_version` column to `AuditRecord` in `core/models/audit.py`.
+   - Created and applied Alembic migration `0008_phase14_audit_key_version.py`.
+   - Updated `core/crypto/kms.py` to support `key_version` in `verify_hmac` across all providers, instrumented with `record_kms_op`.
+   - Updated `core/audit/ledger.py` and `core/audit/verifier.py` to persist and verify against `rec.kms_key_version`.
+6. **Docker & Helm Production Hardening:**
+   - `deploy/Dockerfile.engine`: updated multi-stage build, copied `cli/`, installed console script `aegisctl` on `$PATH`, added build arg `INSTALL_EXTRAS="cli,oidc,kms"`, non-root user.
+   - `deploy/helm/aegisgate/`: added `hpa.yaml`, `pdb.yaml`, `serviceaccount.yaml`, `secret.yaml`, updated `values.yaml`, `_helpers.tpl`, `engine-deployment.yaml`, `dashboard-deployment.yaml`.
+   - Validated `docker compose --profile observability config`.
+7. **Expanded Red-Team Suite:**
+   - Created `tests/redteam/test_v3_security_and_universal.py` verifying all 7 security vectors:
+     - Unicode zero-width, NFKC homoglyph, and Base64 de-obfuscation.
+     - Outbound SSRF blocking matrix (cloud metadata, loopback, private RFC1918) and MCP registration protection.
+     - Cross-tenant IDOR matrix (approvals, audit, verify, policies, kill switch).
+     - Streaming split-token secret leak mid-stream abort.
+     - Pathological 1MB payload scanner execution under sub-second bounds.
+     - System prompt leakage and input injection detection.
+     - KMS key rotation (v1 -> v2) historical hash chain verification and PII vault token decryption.
+
+### Phase 14 Test Results & Benchmarks:
+- **Full Test Suite:** 132 passed out of 132 run (100% pass rate) in 28.78s
+- **Zero Regressions:** All 124 Phase 1–13 tests pass without modification
+- **Core Test Coverage:** 85% across all 3,275 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.51 ms, P95 = 0.70 ms, P99 = 0.81 ms (DoD target: <15.0 ms met)
+- **End-to-End HTTP Latency:** P50 = 21.26 ms, P95 = 25.14 ms, P99 = 29.08 ms (DoD target: <35.0 ms met)
+- **Red-Team Tests:** 8/8 new Phase 14 security tests passed (100% block rate on SSRF, IDOR, split-token leaks)
+- **TypeScript SDK:** 3/3 tests passed in 11.51ms
+- **Admin UI Build:** Vite build succeeded with 0 errors (`dist/` packaged in 3.30s)
+- **Docker Compose:** Validated cleanly across all profiles including observability stack
+
+
 ### Files Created / Implemented:
 - `gateways/llm_proxy/translators/`:
   - `base.py`: `BaseProtocolTranslator` defining canonical input/output extraction, token accounting, mock streaming chunks, and native 403 error payloads.
