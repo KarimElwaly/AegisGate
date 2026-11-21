@@ -345,3 +345,4 @@ Open **`http://localhost:3088`** in your browser to demonstrate the visual contr
 
 ### For the AI / Lead Software Engineer
 > *"Integration is zero-code. Point your OpenAI SDK or LangChain client's base URL to `http://aegisgate:8088/proxy/llm/v1` and you get streaming guardrails, PII redaction, and prompt injection detection out of the box with under 2ms P95 overhead."*
+

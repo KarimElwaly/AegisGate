@@ -592,3 +592,4 @@ services:
 ## 20. Conclusion
 
 AegisGate delivers a production-grade, mathematically verified, extensible AI guardrails architecture. Through strict separation of mechanism from policy, multi-tiered concurrent scanning, cryptographic hash chaining, and dual integration surfaces, it provides an uncompromising foundation for enterprise AI governance.
+
