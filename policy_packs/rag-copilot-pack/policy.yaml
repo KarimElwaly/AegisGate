@@ -68,3 +68,35 @@ rules:
       severity: critical
       reason: "Instruction override or credential harvesting detected in memory write"
       compliance_tags: ["OWASP-LLM03", "MITRE-ATLAS-AML.T0054"]
+
+  - id: rag-taint-confidential-read
+    name: Attach Taint on Confidential Database Access
+    priority: 10
+    stages: ["tool_pre_call", "tool_post_call"]
+    condition:
+      field: "action.name"
+      operator: "in"
+      value: ["read_confidential_db", "export_customer_pii"]
+    action:
+      decision: ALLOW
+      severity: medium
+      reason: "Confidential data accessed; taint attached"
+      add_taints: ["confidential_read"]
+
+  - id: rag-block-tainted-exfiltration
+    name: Block External Outbound Actions from Tainted Sessions
+    priority: 8
+    stages: ["tool_pre_call"]
+    condition:
+      all:
+        - field: "action.name"
+          operator: "in"
+          value: ["post_external_webhook", "send_external_email", "upload_s3_public"]
+        - field: "session.taints"
+          operator: "contains_any"
+          value: ["confidential_read", "customer_pii_extracted"]
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Toxic multi-step tool chain blocked: cannot export data from session tainted with confidential_read"
+      compliance_tags: ["OWASP-LLM06", "SOC2-CC6.1"]

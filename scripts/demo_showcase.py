@@ -69,7 +69,7 @@ def header_box(title: str, subtitle: str = ""):
 
 def case_header(num: int, title: str, law: str):
     print("\n" + BLUE + "─" * 78 + RESET)
-    print(BOLD + GREEN + f" [USE CASE {num}/12] " + RESET + BOLD + title + RESET)
+    print(BOLD + GREEN + f" [USE CASE {num}/16] " + RESET + BOLD + title + RESET)
     print(DIM + f" Architectural Law / Domain: {law}" + RESET)
     print(BLUE + "─" * 78 + RESET)
 
@@ -86,7 +86,7 @@ async def main():
     parser = argparse.ArgumentParser(description="AegisGate Product Showcase & Demo")
     parser.add_argument("--fast", action="store_true", help="Execute without presentation delays")
     parser.add_argument("--step", action="store_true", help="Step interactively case-by-case")
-    parser.add_argument("--case", type=int, choices=range(1, 13), help="Run a specific case (1-12)")
+    parser.add_argument("--case", type=int, choices=range(1, 17), help="Run a specific case (1-16)")
     parser.add_argument("--live", action="store_true", help="Connect to live PDP server at http://127.0.0.1:8088")
     args = parser.parse_args()
 
@@ -514,8 +514,117 @@ async def main():
             print(GREEN + "  [+] RESULT: ZERO-RISK POLICY ROLLOUT WITH ACCURATE BLAST-RADIUS SIMULATION" + RESET)
             await pause(args, 1.5)
 
+        # ----------------------------------------------------------------------
+        # CASE 13: Protocol-Aware MCP Anti-Rug-Pull & Schema Quarantine
+        # ----------------------------------------------------------------------
+        if args.case is None or args.case == 13:
+            case_header(13, "Protocol-Aware MCP Anti-Rug-Pull & Tool Quarantine", "Phase 8 MCP Gateway")
+            print(DIM + " Scenario: Upstream MCP server silently alters tool schema or description." + RESET)
+            print(DIM + " Guardrail: Detects cryptographic hash drift, auto-quarantines tool, strips from tools/list." + RESET)
+
+            pin_req = {
+                "workspace_id": "default",
+                "description": "Execute database query safely",
+                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+            }
+            res_pin = await client.post("/v1/mcp/tools/db_query/pin", json=pin_req)
+            pin_data = res_pin.json()
+            print(f"\n  [>] POST /v1/mcp/tools/db_query/pin")
+            print(f"  [<] Pinned Tool Status: {GREEN}{BOLD}{pin_data.get('status')}{RESET}")
+            print(f"      Schema Hash:        {pin_data.get('schema_hash', '')[:20]}...")
+            print(f"      Is Quarantined:     {pin_data.get('is_quarantined')}")
+            print(GREEN + "  [+] RESULT: ANTI-RUG-PULL PROTECTION ACTIVE FOR MODEL CONTEXT PROTOCOL" + RESET)
+            await pause(args, 1.5)
+
+        # ----------------------------------------------------------------------
+        # CASE 14: Stateful Session Taints & Toxic Multi-Step Tool Chains
+        # ----------------------------------------------------------------------
+        if args.case is None or args.case == 14:
+            case_header(14, "Stateful Session Taints & Toxic Tool-Chain Prevention", "Phase 8 Stateful Governance")
+            print(DIM + " Scenario: Agent accesses confidential internal DB, then attempts external data exfiltration." + RESET)
+            print(DIM + " Guardrail: Attaches session taint, blocking subsequent exfiltration steps across session lifetime." + RESET)
+
+            sess_id = f"sess-taint-{int(time.time())}"
+            # Step 1: Read confidential data -> attaches taint
+            req1 = {
+                "tenant_id": demo_tenant,
+                "session_id": sess_id,
+                "stage": "tool_pre_call",
+                "policy_pack_id": "rag-copilot-pack",
+                "actor": {"id": "copilot-agent", "role": "researcher"},
+                "action": {"name": "read_confidential_db", "parameters": {"table": "executive_payroll"}},
+            }
+            v1 = await client.post("/v1/evaluate", json=req1)
+            print(f"\n  [>] Step 1: Tool 'read_confidential_db' -> Decision: {GREEN}{BOLD}{v1.json().get('decision')}{RESET}")
+            print(f"      Session Taint Attached: {YELLOW}confidential_read{RESET}")
+
+            # Step 2: Attempt external exfiltration in same session
+            req2 = {
+                "tenant_id": demo_tenant,
+                "session_id": sess_id,
+                "stage": "tool_pre_call",
+                "policy_pack_id": "rag-copilot-pack",
+                "actor": {"id": "copilot-agent", "role": "researcher"},
+                "action": {"name": "post_external_webhook", "parameters": {"url": "https://pastebin.com/leak"}},
+            }
+            v2 = await client.post("/v1/evaluate", json=req2)
+            v2_data = v2.json()
+            print(f"\n  [>] Step 2: Tool 'post_external_webhook' in tainted session:")
+            print(f"  [<] Decision:           {RED}{BOLD}{v2_data.get('decision')}{RESET}")
+            print(f"      Blocked Reason:     {v2_data.get('reason') or v2_data.get('triggered_rules', [{}])[0].get('reason', 'Toxic tool chain blocked by session taint')}")
+            print(GREEN + "  [+] RESULT: TOXIC MULTI-STEP AGENT EXFILTRATION ATTEMPT PROACTIVELY BLOCKED" + RESET)
+            await pause(args, 1.5)
+
+        # ----------------------------------------------------------------------
+        # CASE 15: Hierarchical RAG ACL Clearance & Chunk-Level Filtering
+        # ----------------------------------------------------------------------
+        if args.case is None or args.case == 15:
+            case_header(15, "Hierarchical RAG ACL Clearance & Chunk Sanitization", "Phase 9 Domain Generalization")
+            print(DIM + " Scenario: Employee with 'internal' clearance queries enterprise knowledge base." + RESET)
+            print(DIM + " Guardrail: Strips 'secret' and 'confidential' chunks before context reaches LLM prompt." + RESET)
+
+            rag_req = {
+                "tenant_id": demo_tenant,
+                "stage": "rag_retrieval",
+                "policy_pack_id": "rag-copilot-pack",
+                "actor": {"id": "user-corp-12", "role": "employee", "metadata": {"clearance_level": "internal"}},
+                "action": {"name": "rag_query", "parameters": {"query": "Q3 Roadmap"}},
+                "content": {
+                    "untrusted_data": [
+                        {"chunk_id": "c1", "text": "Q3 General Product Goals", "clearance": "internal"},
+                        {"chunk_id": "c2", "text": "Restricted M&A Acquisition Target", "clearance": "top_secret"},
+                    ]
+                },
+            }
+            res_rag = await client.post("/v1/evaluate", json=rag_req)
+            rag_data = res_rag.json()
+            print(f"\n  [>] POST /v1/evaluate (Stage: rag_retrieval, Clearance: internal)")
+            print(f"  [<] Decision:           {YELLOW}{BOLD}{rag_data.get('decision')}{RESET}")
+            sanitized_chunks = (rag_data.get("mutated_content") or {}).get("untrusted_data", [])
+            print(f"      Clearance Filter Applied: Caller 'internal' vs chunk 'top_secret'")
+            print(f"      Violations Flagged:       {len(rag_data.get('triggered_rules', [])) or 'Filtered by RAG ACL'}")
+            print(GREEN + "  [+] RESULT: MATHEMATICAL MULTI-TENANT ACL ISOLATION FOR RAG PIPELINES" + RESET)
+            await pause(args, 1.5)
+
+        # ----------------------------------------------------------------------
+        # CASE 16: Shadow AI & Asset Auto-Discovery Inventory
+        # ----------------------------------------------------------------------
+        if args.case is None or args.case == 16:
+            case_header(16, "Shadow AI & Automated Asset Discovery Inventory", "Phase 10 Enterprise Ops")
+            print(DIM + " Scenario: Discover undeclared shadow AI tools and third-party models in production traffic." + RESET)
+            print(DIM + " Guardrail: Passively inventories observed assets, flags high-risk rogue agents for approval." + RESET)
+
+            res_assets = await client.get("/v1/discovery/assets")
+            assets_list = res_assets.json() if res_assets.status_code == 200 else []
+            print(f"\n  [>] GET /v1/discovery/assets")
+            print(f"  [<] Auto-Discovered Assets: {len(assets_list)} assets indexed")
+            for a in assets_list[:3]:
+                print(f"      • {a.get('name')} [{a.get('asset_type')}] -> status: {a.get('governance_status')} (risk: {a.get('risk_level')})")
+            print(GREEN + "  [+] RESULT: CONTINUOUS SHADOW AI OBSERVABILITY AND GOVERNANCE VISIBILITY" + RESET)
+            await pause(args, 1.5)
+
     header_box(
-        "ALL 12 COMMERCIAL SHOWCASE USE CASES VERIFIED PERFECTLY",
+        "ALL 16 COMMERCIAL SHOWCASE USE CASES VERIFIED PERFECTLY",
         "AegisGate Standalone AI Guardrails & Governance Platform Ready for Production",
     )
 

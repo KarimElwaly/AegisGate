@@ -65,8 +65,10 @@ AegisGate is a high-throughput, sub-15ms Policy Decision Point (PDP) designed to
 ```
 
 ### Key Performance & Governance Benchmarks
-- **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.33ms P95 latency** under real workloads (DoD target: < 15ms).
+- **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.61ms P95 latency** (0.38ms P50, 0.77ms P99) under real enterprise workloads (DoD target: < 15ms).
 - **Red-Team Injection Benchmark:** Achieves **100.0% prompt injection detection** (41/41 attacks caught) with **0.00% False Positive Rate** (0/41 benign logs flagged) on security evaluation corpora.
+- **Protocol-Aware MCP Anti-Rug-Pull:** Pinned SHA-256 schema hashing detects upstream drift, auto-quarantines tools, strips them from `tools/list`, and enforces monotonic tool scope attenuation.
+- **Stateful Session Taints:** Multi-step tool-chain governance backed by Redis sets prevents toxic composite actions (confidential read followed by external exfiltration).
 - **Strict Decoupling:** Core governance mechanics (`core/`) contain **zero domain-specific code**; all domain logic is strictly isolated in `plugins/` and `policy_packs/`.
 - **Tamper-Evident Ledger:** Every policy verdict is chained to its predecessor via `prev_hash`, enabling continuous topological Merkle integrity checks.
 - **Comprehensive Documentation:** Full technical specifications in [ARCHITECTURE.md](ARCHITECTURE.md) and step-by-step showcase in [DEMO_GUIDE.md](DEMO_GUIDE.md).
@@ -91,7 +93,7 @@ python scripts/seed_demo.py
 ```
 
 ### Run Interactive Showcase & System Verification
-To verify all 6 core enterprise scenarios (secrets masking, HITL dual approval, prompt injection, loop breaker, kill switch, and audit chain verification) without external dependencies:
+To verify all 16 core enterprise scenarios (secrets masking, HITL dual approval, prompt injection, loop breaker, kill switch, MCP anti-rug-pull, session taints, RAG ACL, and audit chain verification):
 
 ```bash
 python scripts/demo_showcase.py
@@ -102,14 +104,17 @@ python scripts/verify_system.py
 
 ## 3. Endpoints & Gateways
 
-AegisGate can run on standard ports (`3000`/`8000`) or dedicated conflict-free development ports (`3088`/`8088`):
+AegisGate runs on standard ports (`3000`/`8000`) or dedicated conflict-free development ports (`3088`/`8088`):
 
 | Component | Port (Dev / Docker) | Path / URL | Description |
 | :--- | :--- | :--- | :--- |
-| **Control Plane Dashboard** | `3088` / `3000` | `http://localhost:3088` | React 18 + TS UI (Policy Studio, HITL, Kill Switch, Merkle Forensics) |
+| **Control Plane Dashboard** | `3088` / `3000` | `http://localhost:3088` | React 18 + TS UI (Policy Studio, Tenants, MCP, HITL, Kill Switch, Merkle Forensics) |
 | **PDP Evaluation Gateway** | `8088` / `8000` | `/v1/evaluate` | Primary REST PDP endpoint for tool and LLM evaluation |
-| **OpenAI LLM Reverse Proxy** | `8088` / `8000` | `/proxy/llm/v1/chat/completions` | Transparent LLM gateway with rolling SSE token stream evaluation |
-| **MCP Tool Gateway** | `8088` / `8000` | `/proxy/mcp/jsonrpc` | Model Context Protocol JSON-RPC 2.0 tool guardrail gateway |
+| **OpenAI LLM Reverse Proxy** | `8088` / `8000` | `/proxy/llm/v1/chat/completions` | Transparent LLM gateway with failover, sovereignty routing, and token true-up |
+| **MCP Tool Gateway** | `8088` / `8000` | `/proxy/mcp/jsonrpc` | Protocol-Aware MCP JSON-RPC 2.0 gateway with Anti-Rug-Pull schema pinning |
+| **MCP Server Management** | `8088` / `8000` | `/v1/mcp/servers`, `/v1/mcp/tools/*` | Upstream MCP server registry, tool schema pinning, and quarantine controls |
+| **Multi-Tenancy & Keys** | `8088` / `8000` | `/v1/tenants`, `/v1/api-keys`, `/v1/budgets` | Tenant isolation, scoped Virtual API Keys, and live Redis budget quotas |
+| **Shadow AI Discovery** | `8088` / `8000` | `/v1/discovery/assets` | Auto-discovered models, rogue tools, and approve/block governance |
 | **REST Tool Gateway** | `8088` / `8000` | `/proxy/tools/{tool_name}` | Generic HTTP tool execution guardrail proxy |
 | **HITL Approvals Inbox** | `8088` / `8000` | `/v1/approvals` | Human-in-the-Loop decision and parameter override API |
 | **Audit & Merkle Verifier** | `8088` / `8000` | `/v1/audit/verify` | Cryptographic hash-chain continuity and tamper detection |
@@ -197,58 +202,86 @@ High-volume SIEM and server log security:
 - Reversible PII masking protects employee/customer identities before feeding logs to LLMs.
 - Strict output JSON schema validation guarantees consistent forensic anomaly reports.
 
+### 5. `rag-copilot-pack`
+Enterprise knowledge base & Copilot security:
+- Mathematical chunk-level metadata ACL clearance enforcement (`rag_acl_guard`).
+- Memory write poisoning protection blocking embedded prompt overrides (`memory_poison_guard`).
+- Named entity recognition (NER) masking unstructured employee and customer PII.
+- Session taint protection blocking external data exfiltration following confidential data access.
+
+### 6. `customer-support-voice-pack`
+Omnichannel customer service and voice agent guardrails:
+- Real-time semantic topic boundary enforcement blocking off-topic or competitor queries.
+- Safety & toxicity scanner catching harassment, profanity, and threats with local ML.
+- Sub-5ms low latency Tier-1/Tier-2 fast path for interactive voice sessions.
+
 ---
 
-## 6. Developer SDKs
+## 6. Developer SDKs & Ecosystem Adapters
 
-### Python SDK (`aegisgate`)
+### Standalone Python SDK (`aegisgate`)
+Install as a lightweight standalone package without server dependencies:
+```bash
+pip install -e sdks/python
+```
+
+#### Native Framework Adapters
+
+##### LangGraph Agent Guard
 ```python
-from aegisgate import AegisClient, governed_tool, governed_llm
+from aegisgate.adapters import LangGraphGuard
 
-client = AegisClient(
-    endpoint="http://localhost:8088",
-    api_key="aegis_live_your_key_here",
-    tenant_id="acme-corp",
-)
+guard = LangGraphGuard(policy_pack_id="agent-fleet-pack")
 
-# Protect a tool function with automatic pre/post call guardrails
-@governed_tool(client=client, policy_pack="soc-investigation-pack")
-def isolate_host(asset_id: str):
-    # This code only executes if AegisGate returns ALLOW
-    return f"Isolated {asset_id}"
-
-# Protect LLM invocations with automatic prompt and response screening
-@governed_llm(client=client, policy_pack="base-enterprise")
-def analyze_data(prompt: str) -> str:
-    # Prompt is scrubbed for PII and secrets prior to reaching provider
-    return openai_client.chat.completions.create(...)
+# Wrap LangGraph node functions with pre-step and post-step guardrails
+governed_search = guard.wrap_node(search_node, node_name="search_step")
 ```
 
-### TypeScript / Node SDK (`@aegisgate/sdk`)
-```typescript
-import { AegisClient } from '@aegisgate/sdk';
+##### FastMCP Server Tool Interceptor
+```python
+from aegisgate.adapters import FastMcpGuard
 
-const client = new AegisClient({
-  endpoint: 'http://localhost:8088',
-  apiKey: process.env.AEGIS_API_KEY!,
-  tenantId: 'acme-corp',
-});
+guard = FastMcpGuard(policy_pack_id="base-enterprise")
 
-const verdict = await client.evaluate({
-  stage: 'tool_pre_call',
-  policyPackId: 'agent-fleet-pack',
-  actor: { id: 'agent-worker-03', role: 'researcher' },
-  action: { name: 'deploy_container', parameters: { image: 'alpine:latest' } },
-});
+@guard.tool(name="execute_query")
+async def execute_query(sql: str) -> dict:
+    # Tool pre-call and post-call validation automatically executed
+    return await db.fetch(sql)
+```
 
-if (verdict.decision !== 'ALLOW') {
-  throw new Error(`Execution blocked by AegisGate: ${verdict.reason}`);
-}
+##### OpenAI SDK Client Adapter
+```python
+from openai import OpenAI
+from aegisgate.adapters import AegisOpenAIAdapter
+
+adapter = AegisOpenAIAdapter(
+    base_url="http://localhost:8088/proxy/llm/v1",
+    api_key="ag_live_client_key_here",
+    policy_pack_id="rag-copilot-pack",
+)
+client = OpenAI(**adapter.get_client_kwargs())
 ```
 
 ---
 
-## 7. Regulatory Compliance Mapping
+## 7. GitOps CLI (`aegisctl`)
+
+The `aegisctl` CLI validates and simulates policies within CI/CD pipelines before production deployment:
+
+```bash
+# Validate policy syntax, schema, and plugin registry scanner availability
+python -m cli.aegisctl.main validate policy_packs/rag-copilot-pack/policy.yaml
+
+# Run automated test assertions against a policy pack
+python -m cli.aegisctl.main test policy_packs/rag-copilot-pack/policy.yaml tests/fixtures/test_cases.json
+
+# Replay historical audit logs through candidate policy packs to preview blast-radius
+python -m cli.aegisctl.main replay policy_packs/rag-copilot-pack/policy.yaml tests/fixtures/audit_log.json
+```
+
+---
+
+## 8. Regulatory Compliance Mapping
 
 AegisGate satisfies international AI governance, financial, and cybersecurity compliance frameworks:
 
@@ -264,9 +297,9 @@ AegisGate satisfies international AI governance, financial, and cybersecurity co
 
 ---
 
-## 8. Testing & Quality Verification
+## 9. Testing & Quality Verification
 
-Run full test suite:
+Run full test suite (94 tests with 86% coverage on core):
 ```bash
 pytest --cov=core --cov-report=term-missing
 ```
@@ -286,6 +319,12 @@ Run End-to-End System Verification:
 python scripts/verify_system.py
 ```
 
+Run Automated UI & Backend Playwright Verification:
+```bash
+node scripts/test_ui_backend_integration.mjs
+node scripts/verify_v2_ui.mjs
+```
+
 Build Control Plane UI:
 ```bash
 npm --prefix dashboard run build
@@ -293,7 +332,7 @@ npm --prefix dashboard run build
 
 ---
 
-## 9. Architecture Roadmap (Road to Universal Governance)
+## 10. Architecture Roadmap (Road to Universal Governance)
 
 To scale into a global, universal guardrails and governance platform, the architectural evolution roadmap encompasses:
 1. **Universal Protocol Translation:** Native adapter endpoints for Anthropic Claude (Messages API), Google Gemini, AWS Bedrock, and Ollama.

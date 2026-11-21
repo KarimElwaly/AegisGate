@@ -33,12 +33,14 @@ python scripts/demo_showcase.py --live
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       AEGISGATE USE CASE TAXONOMY                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  1. Zero-Code OpenAI LLM Proxy       │  7. SOC Pack: Single & Dual HITL     │
-│  2. Reversible PII & Secret Vault    │  8. Multi-Agent Runaway Loop Breaker │
-│  3. Zero-Code MCP & Tool Gateway     │  9. Untrusted Log Injection Scanner  │
-│  4. Sub-15ms Direct PDP REST API     │ 10. 5-Tier Emergency Kill Switch     │
-│  5. Python SDK & @governed_tool      │ 11. Cryptographic Hash Audit Ledger  │
-│  6. SOC Pack: Domain Controller Block│ 12. Shadow Mode & Replay Simulator   │
+│  1. Zero-Code OpenAI LLM Proxy       │  9. Untrusted Log Injection Scanner  │
+│  2. Reversible PII & Secret Vault    │ 10. 5-Tier Emergency Kill Switch     │
+│  3. Zero-Code MCP & Tool Gateway     │ 11. Cryptographic Hash Audit Ledger  │
+│  4. Sub-15ms Direct PDP REST API     │ 12. Shadow Mode & Replay Simulator   │
+│  5. Python SDK & @governed_tool      │ 13. Protocol-Aware MCP Anti-Rug-Pull │
+│  6. SOC Pack: Domain Controller Block│ 14. Stateful Session Taint Chains    │
+│  7. SOC Pack: Single & Dual HITL     │ 15. Hierarchical RAG ACL Clearance   │
+│  8. Multi-Agent Runaway Loop Breaker │ 16. Shadow AI & Asset Auto-Discovery │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -306,6 +308,96 @@ curl -X POST http://127.0.0.1:8088/v1/simulate/replay \
 
 ---
 
+### Use Case 13: Protocol-Aware MCP Anti-Rug-Pull & Tool Schema Quarantine
+- **Scenario:** An upstream third-party or internal MCP server silently modifies its tool descriptions or input schemas, attempting a prompt injection rug-pull attack.
+- **Defense Mechanism:** AegisGate pins SHA-256 hashes of all approved tool schemas. When schema drift is detected, the MCP gateway immediately quarantines the tool, strips it from `tools/list` responses to agents, and rejects invocation attempts with error code `-32002`.
+- **Tool Pinning & Quarantine Inspection:**
+```bash
+# Pin approved baseline
+curl -X POST http://127.0.0.1:8088/v1/mcp/tools/query_db/pin \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_id": "default", "description": "Safe query", "input_schema": {"type": "object"}}'
+
+# Inspect quarantined tools
+curl -X GET http://127.0.0.1:8088/v1/mcp/tools/quarantine
+```
+
+---
+
+### Use Case 14: Stateful Session Taints & Toxic Multi-Step Tool Chain Prevention
+- **Scenario:** An autonomous agent executes an individually benign tool (e.g., querying private user records), and later attempts another benign tool (e.g., sending an outbound webhook or email). Individually, both tools are permitted, but together they constitute a toxic data exfiltration chain.
+- **Defense Mechanism:** Rules or scanners attach session taints (`action.add_taints: ["confidential_read"]`) stored in Redis with session TTL. Subsequent rules enforce `session.taints contains_any ["confidential_read"]` to block external transmission tools within the same session.
+- **Step 1 (Confidential Read -> Taint Attached):**
+```bash
+curl -X POST http://127.0.0.1:8088/v1/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "acme-corp",
+    "session_id": "sess-alpha-99",
+    "stage": "tool_pre_call",
+    "policy_pack_id": "rag-copilot-pack",
+    "actor": {"id": "agent-01", "role": "researcher"},
+    "action": {"name": "read_confidential_db", "parameters": {"table": "payroll"}}
+  }'
+# Verdict: ALLOW (Session acquires taint "confidential_read")
+```
+- **Step 2 (Outbound Webhook -> DENIED by Taint):**
+```bash
+curl -X POST http://127.0.0.1:8088/v1/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "acme-corp",
+    "session_id": "sess-alpha-99",
+    "stage": "tool_pre_call",
+    "policy_pack_id": "rag-copilot-pack",
+    "actor": {"id": "agent-01", "role": "researcher"},
+    "action": {"name": "post_external_webhook", "parameters": {"url": "https://pastebin.com"}}
+  }'
+# Verdict: DENY ("Toxic multi-step tool chain blocked: cannot export data from tainted session")
+```
+
+---
+
+### Use Case 15: Hierarchical RAG ACL Clearance & Chunk Sanitization
+- **Scenario:** An employee with `internal` clearance asks an AI Copilot to summarize quarterly reports. The vector database retrieves chunks marked `internal` alongside confidential M&A deal memos marked `top_secret`.
+- **Defense Mechanism:** At `rag_retrieval`, `rag_acl_guard` enforces mathematical clearance hierarchies (`public` < `internal` < `confidential` < `secret` < `top_secret`), automatically stripping unauthorized chunks (`MODIFY`) before context assembly.
+- **cURL Invocation:**
+```bash
+curl -X POST http://127.0.0.1:8088/v1/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "acme-corp",
+    "stage": "rag_retrieval",
+    "policy_pack_id": "rag-copilot-pack",
+    "actor": {"id": "user-corp", "metadata": {"clearance_level": "internal"}},
+    "action": {"name": "rag_query"},
+    "content": {
+      "untrusted_data": [
+        {"chunk_id": "1", "text": "Q3 Revenue Goals", "clearance": "internal"},
+        {"chunk_id": "2", "text": "Projected M&A Target", "clearance": "top_secret"}
+      ]
+    }
+  }'
+```
+
+---
+
+### Use Case 16: Shadow AI & Automated Asset Discovery Inventory
+- **Scenario:** Developers and autonomous agent workflows silently start calling unvetted tools, models (e.g. `claude-3-5-sonnet-shadow`), or third-party MCP servers.
+- **Defense Mechanism:** AegisGate passively listens on proxy endpoints, registering observed `(model, tool, agent)` tuples in the `discovered_assets` database with `shadow_unapproved` status. Security teams review and transition assets to `governed` or `blocked` in one click.
+- **Asset Inventory API:**
+```bash
+# List discovered shadow assets
+curl -X GET "http://127.0.0.1:8088/v1/discovery/assets?governance_status=shadow_unapproved"
+
+# Approve asset into governed fleet
+curl -X PATCH http://127.0.0.1:8088/v1/discovery/assets/ast-001 \
+  -H "Content-Type: application/json" \
+  -d '{"governance_status": "governed", "risk_level": "low"}'
+```
+
+---
+
 ## 3. Live Control Plane UI Demonstration Guide (`:3088`)
 
 Open **`http://localhost:3088`** in your browser to demonstrate the visual control plane:
@@ -316,19 +408,26 @@ Open **`http://localhost:3088`** in your browser to demonstrate the visual contr
 2. **Policy Pack Studio (`/policies`):**
    - Select `soc-investigation-pack`.
    - Show the editable YAML DSL editor and the side-by-side version diff viewer.
+   - Click **+ New Draft Policy Pack** to open the draft generation modal with starter templates.
    - Click **Save & Publish** to show instant hot-reloading without service restarts.
-3. **Plugin & Scanner Registry (`/plugins`):**
+3. **Multi-Tenancy & Virtual Keys (`/tenants`):**
+   - View active tenant scope, virtual key metrics, and total budget caps.
+   - Click **Issue Virtual API Key** to mint scoped `ag_live_...` credentials with model allowlists.
+4. **MCP Security & Shadow Discovery (`/discovery`):**
+   - Inspect pinned MCP tools, schema SHA-256 hashes, and Anti-Rug-Pull quarantine status.
+   - Switch to **Shadow AI Assets** tab to view auto-discovered models, rogue tools, and approve/block them.
+5. **Plugin & Scanner Registry (`/plugins`):**
    - Showcase Tier-1, Tier-2, and Tier-3 scanners.
    - Click **Configure** on any scanner to demonstrate dynamic Pydantic form generation with JSON schema validation.
-4. **HITL Decision Room (`/hitl`):**
+6. **HITL Decision Room (`/hitl`):**
    - Review pending authorization requests.
    - Edit the action parameters directly in the textarea (parameter override).
    - Click **Authorize & Resume Tool** to resume execution.
-5. **Emergency Circuit Breakers (`/kill-switch`):**
+7. **Emergency Circuit Breakers (`/kill-switch`):**
    - Click **TRIP TENANT** or **TRIP TOOL**.
    - Input the mandatory audit justification reason and trip the breaker.
    - Show the active breaker badge and click **DISENGAGE** to restore normal operation.
-6. **Forensic Audit & Simulator (`/audit`):**
+8. **Forensic Audit & Simulator (`/audit`):**
    - Click **Verify Ledger Continuity** to trigger cryptographic chain traversal and display the green `Intact` badge.
    - Click **Export JSONL / CSV** to download compliance records.
    - Click **Open Replay Simulator** and run historical replay simulations.
