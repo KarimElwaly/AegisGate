@@ -1,14 +1,14 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 8 COMPLETED (Phases 1 through 8 Complete)
-- Overall Test Suite Status: 75 / 75 Tests Passing (100%)
-- Core Test Coverage: 86% across 2,667 statements in `core/` (DoD Target: >=85%)
-- Tier-1 P95 Latency: 1.38 ms (DoD Target: <15 ms)
+- Current Phase: Phase 9 COMPLETED (Phases 1 through 9 Complete)
+- Overall Test Suite Status: 85 / 85 Tests Passing (100%)
+- Core Test Coverage: 86% across 2,691 statements in `core/` (DoD Target: >=85%)
+- Tier-1 P95 Latency: 1.02 ms (DoD Target: <15 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (DoD Target: <2%)
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: IN PROGRESS (Phase 8 Complete, moving to Phase 9)
+- Autonomous Mode: IN PROGRESS (Phase 9 Complete, moving to Phase 10)
 
 ---
 
@@ -228,5 +228,36 @@
 - **Core Test Coverage:** 86% across all 2,667 statements in `core/` (DoD target: >=85% met)
 - **Tier-1 Fast-Path Latency:** P50 = 0.81 ms, P95 = 1.38 ms, P99 = 1.62 ms (DoD target: <15.0 ms met)
 - **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+
+---
+
+## Phase 9: Multi-Modal, RAG & Memory Guardrails, Multi-Provider Routing & General Reference Packs (COMPLETED)
+### Files Created / Implemented:
+- `plugins/scanners/tier1_deterministic/rag_acl_guard.py`: `RagAclGuardScanner` enforcing hierarchical clearance classification levels (`public` < `internal` < `confidential` < `secret` < `top_secret`) and group/user ACL filtering across retrieved RAG chunks in `rag_retrieval` and `llm_input`.
+- `plugins/scanners/tier1_deterministic/memory_poison_guard.py`: `MemoryPoisonGuardScanner` inspecting memory writes in `memory_write` and `tool_pre_call` for prompt injection directives, system prompt overrides, credential harvesting, and excessive memory allocations.
+- `plugins/scanners/tier2_local_ml/ner_pii_scanner.py`: `NerPiiScanner` providing named entity recognition for unstructured text (emails, phones, credit cards, SSNs, passports, names) across all pipeline stages.
+- `plugins/scanners/tier2_local_ml/topic_guard.py`: `TopicGuardScanner` providing semantic topic boundary enforcement (cryptocurrency, financial advice, partisan politics, competitor mentions).
+- `plugins/scanners/tier2_local_ml/safety_toxicity_scanner.py`: `SafetyToxicityScanner` checking content for violence, harassment, threats, self-harm, and hate speech.
+- `plugins/scanners/tier1_deterministic/__init__.py` and `plugins/scanners/tier2_local_ml/__init__.py`: Exported all new scanners with Pydantic `ConfigSchema`.
+- `core/bootstrap.py`: Registered all Phase 9 scanners into the global plugin registry and auto-loaded new policy packs.
+- `core/schemas/events.py` and `sdks/python/aegisgate/models.py`: Added `attachments: list[dict[str, Any]]` to `ContentModel` for multi-modal support (images, documents, audio).
+- `core/governance/budgets.py`: Added `reconcile_tokens` to `BudgetManager` for adjusting token balances by `delta = actual - estimated`.
+- `gateways/llm_proxy/proxy.py`:
+  - Added sovereignty routing (`is_sovereign`) directing requests to local providers whenever session taints or headers demand on-premises processing (`X-Aegis-Routed-Provider: local-sovereign`).
+  - Added dynamic upstream provider pool failover loop on HTTP 429/5xx.
+  - Added exact token reconciliation post-completion (`X-Aegis-Reconciled-Tokens`).
+  - Added multi-modal attachment ingestion from request payload.
+- `policy_packs/rag-copilot-pack/policy.yaml`: Enterprise Copilot pack with RAG ACL clearance, memory write sanitization, and NER PII masking.
+- `policy_packs/customer-support-voice-pack/policy.yaml`: Omnichannel support pack with topic guardrails, toxicity blocking, and prompt injection defense.
+- `tests/unit/test_phase9_rag_memory_scanners.py`: Unit tests for `RagAclGuardScanner`, `MemoryPoisonGuardScanner`, `NerPiiScanner`, `TopicGuardScanner`, and `SafetyToxicityScanner`.
+- `tests/integration/test_phase9_routing_reconciliation.py`: Integration tests for sovereignty routing, exact token reconciliation, RAG Copilot policy pack, Customer Support pack, and multi-modal attachments.
+
+### Phase 9 Test Results & Benchmarks:
+- **Full Test Suite:** 85 passed out of 85 run (100% pass rate) in 34.40s
+- **Zero Regressions:** All 75 Phase 1–8 tests pass without modification
+- **Core Test Coverage:** 86% across all 2,691 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.72 ms, P95 = 1.02 ms, P99 = 1.10 ms (DoD target: <15.0 ms met)
+- **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+
 
 

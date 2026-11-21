@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from fastapi.responses import StreamingResponse
 
 from core.config import get_settings
+from core.governance.budgets import get_budget_manager
+from core.governance.taint_tracker import get_taint_tracker
 from core.logger import get_logger
 from core.pii_vault.vault import get_pii_vault
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
@@ -79,6 +81,7 @@ async def chat_completions(
     messages = body.get("messages", [])
     stream = bool(body.get("stream", False))
     model = body.get("model", "default-model")
+    attachments = body.get("attachments", [])
 
     trusted_instr, untrusted_data = _extract_messages_text(messages)
 
@@ -91,10 +94,30 @@ async def chat_completions(
         stage=StageEnum.LLM_INPUT,
         actor=ActorModel(id=x_aegis_actor_id, role=x_aegis_actor_role),
         action=ActionModel(name="chat_completion", target=model, parameters={"stream": stream}),
-        content=ContentModel(trusted_instructions=trusted_instr, untrusted_data=untrusted_data),
+        content=ContentModel(
+            trusted_instructions=trusted_instr,
+            untrusted_data=untrusted_data,
+            attachments=attachments,
+        ),
     )
 
     verdict_input = await orchestrator.evaluate(eval_req_input)
+
+    # Check session sovereignty requirements (e.g. sensitive taints or local_only directive)
+    session_taints: set[str] = set()
+    if x_aegis_session_id:
+        try:
+            session_taints = await get_taint_tracker().get_taints(x_aegis_tenant_id, x_aegis_session_id)
+        except Exception:
+            pass
+
+    is_sovereign = (
+        "local_only" in session_taints
+        or "confidential_pii" in session_taints
+        or request.headers.get("x-aegis-route-tier") == "local_only"
+        or any("route_to_tier: local_only" in (r.reason or "") for r in verdict_input.triggered_rules)
+    )
+    routed_provider = "local-sovereign" if is_sovereign else "upstream-cloud"
 
     # If DENIED on input, return 403 policy violation
     if verdict_input.decision == DecisionEnum.DENY:
@@ -173,6 +196,20 @@ async def chat_completions(
                 ],
                 "usage": {"prompt_tokens": 15, "completion_tokens": 12, "total_tokens": 27},
             }
+            # Reconcile exact tokens
+            usage = mock_completion.get("usage", {})
+            actual_tokens = usage.get("total_tokens", 27)
+            if x_aegis_session_id:
+                try:
+                    await get_budget_manager().reconcile_tokens(
+                        x_aegis_tenant_id,
+                        "session",
+                        x_aegis_session_id,
+                        actual_tokens - eval_req_input.action.estimated_tokens,
+                    )
+                except Exception:
+                    pass
+
             return Response(
                 content=json.dumps(mock_completion),
                 status_code=200,
@@ -181,12 +218,23 @@ async def chat_completions(
                     "X-Aegis-Verdict-Id": verdict_output.verdict_id,
                     "X-Aegis-Risk-Score": str(verdict_output.risk_score),
                     "X-Aegis-Latency-Ms": str(verdict_output.latency_ms),
+                    "X-Aegis-Routed-Provider": routed_provider,
+                    "X-Aegis-Reconciled-Tokens": str(actual_tokens),
                 },
             )
 
-    # Real upstream invocation
-    upstream_base = x_aegis_upstream_url or settings.LLM_JUDGE_BASE_URL
-    target_url = f"{upstream_base.rstrip('/')}/chat/completions"
+    # Real upstream invocation with Sovereignty & Provider Failover
+    candidate_urls: list[str] = []
+    if is_sovereign:
+        candidate_urls = [f"{settings.LLM_JUDGE_BASE_URL.rstrip('/')}/chat/completions"]
+    elif x_aegis_upstream_url:
+        candidate_urls = [
+            u.strip().rstrip("/") + ("/chat/completions" if not u.strip().endswith("/chat/completions") else "")
+            for u in x_aegis_upstream_url.split(",")
+            if u.strip()
+        ]
+    else:
+        candidate_urls = [f"{settings.LLM_JUDGE_BASE_URL.rstrip('/')}/chat/completions"]
 
     forward_headers = {"Content-Type": "application/json"}
     if authorization:
@@ -196,6 +244,7 @@ async def chat_completions(
 
     try:
         if stream:
+            target_url = candidate_urls[0]
             req_stream = client.build_request("POST", target_url, json=body, headers=forward_headers)
             upstream_resp = await client.send(req_stream, stream=True)
 
@@ -225,11 +274,30 @@ async def chat_completions(
             return StreamingResponse(
                 wrapped_stream(),
                 media_type="text/event-stream",
-                headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
+                headers={
+                    "X-Aegis-Verdict-Id": verdict_input.verdict_id,
+                    "X-Aegis-Routed-Provider": routed_provider,
+                },
             )
         else:
-            resp = await client.post(target_url, json=body, headers=forward_headers)
+            resp = None
+            last_err = None
+            for target_url in candidate_urls:
+                try:
+                    resp = await client.post(target_url, json=body, headers=forward_headers)
+                    if resp.status_code in (429, 500, 502, 503, 504) and len(candidate_urls) > 1:
+                        logger.warning("Upstream provider returned failover code, trying next", status=resp.status_code, url=target_url)
+                        continue
+                    break
+                except (httpx.RequestError, httpx.TimeoutException) as err:
+                    last_err = err
+                    logger.warning("Upstream provider connection failed, trying next", error=str(err), url=target_url)
+                    continue
+
             await client.aclose()
+
+            if resp is None:
+                raise last_err or httpx.ConnectError("All upstream providers in pool failed")
 
             if resp.status_code != 200:
                 return Response(
@@ -284,6 +352,19 @@ async def chat_completions(
             if choices and rehydrated_content != assistant_content:
                 choices[0]["message"]["content"] = rehydrated_content
 
+            usage = resp_json.get("usage", {})
+            actual_tokens = usage.get("total_tokens", 0)
+            if actual_tokens > 0 and x_aegis_session_id:
+                try:
+                    await get_budget_manager().reconcile_tokens(
+                        x_aegis_tenant_id,
+                        "session",
+                        x_aegis_session_id,
+                        actual_tokens - eval_req_input.action.estimated_tokens,
+                    )
+                except Exception:
+                    pass
+
             return Response(
                 content=json.dumps(resp_json),
                 status_code=200,
@@ -292,6 +373,8 @@ async def chat_completions(
                     "X-Aegis-Verdict-Id": verdict_output.verdict_id,
                     "X-Aegis-Risk-Score": str(verdict_output.risk_score),
                     "X-Aegis-Latency-Ms": str(verdict_output.latency_ms),
+                    "X-Aegis-Routed-Provider": routed_provider,
+                    "X-Aegis-Reconciled-Tokens": str(actual_tokens),
                 },
             )
     except httpx.RequestError as exc:

@@ -12,10 +12,15 @@ from plugins.resolvers.static_resolver import StaticLookupResolver
 from plugins.scanners.tier1_deterministic.entropy_size_guard import EntropySizeGuard
 from plugins.scanners.tier1_deterministic.grounding_scanner import EvidenceGroundingScanner
 from plugins.scanners.tier1_deterministic.json_schema_scanner import JsonSchemaScanner
+from plugins.scanners.tier1_deterministic.memory_poison_guard import MemoryPoisonGuardScanner
 from plugins.scanners.tier1_deterministic.pii_scanner import PiiScanner
+from plugins.scanners.tier1_deterministic.rag_acl_guard import RagAclGuardScanner
 from plugins.scanners.tier1_deterministic.secrets_scanner import SecretsScanner
 from plugins.scanners.tier1_deterministic.tool_param_guard import ToolParamGuard
+from plugins.scanners.tier2_local_ml.ner_pii_scanner import NerPiiScanner
 from plugins.scanners.tier2_local_ml.onnx_classifier import ONNXInjectionClassifier
+from plugins.scanners.tier2_local_ml.safety_toxicity_scanner import SafetyToxicityScanner
+from plugins.scanners.tier2_local_ml.topic_guard import TopicGuardScanner
 from plugins.scanners.tier3_llm_judge.judge_scanner import LLMJudgeScanner
 from plugins.scanners.webhook_scanner import WebhookScanner
 
@@ -40,10 +45,15 @@ def bootstrap_system() -> None:
     registry.register_scanner(ToolParamGuard())
     registry.register_scanner(EntropySizeGuard())
     registry.register_scanner(EvidenceGroundingScanner())
+    registry.register_scanner(RagAclGuardScanner())
+    registry.register_scanner(MemoryPoisonGuardScanner())
     registry.register_scanner(WebhookScanner())
 
-    # 2. Register Tier-2 Local ML Classifier
+    # 2. Register Tier-2 Local ML Classifiers
     registry.register_scanner(ONNXInjectionClassifier())
+    registry.register_scanner(NerPiiScanner())
+    registry.register_scanner(TopicGuardScanner())
+    registry.register_scanner(SafetyToxicityScanner())
 
     # 3. Register Tier-3 Semantic LLM Judge
     registry.register_scanner(LLMJudgeScanner())

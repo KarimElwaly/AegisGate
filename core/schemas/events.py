@@ -33,6 +33,7 @@ class ContentModel(BaseModel):
     untrusted_data: Any = None
     output_payload: Any = None
     citations: list[str] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EvaluationRequest(BaseModel):

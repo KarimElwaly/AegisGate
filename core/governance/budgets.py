@@ -184,6 +184,29 @@ class BudgetManager:
             pass
         return BudgetSnapshot()
 
+    async def reconcile_tokens(
+        self,
+        tenant_id: str,
+        scope_type: str,
+        scope_id: str,
+        delta: int,
+    ) -> BudgetSnapshot:
+        """Adjusts token count in Redis/memory by delta = actual - estimated."""
+        if delta == 0:
+            return await self.get_budget_snapshot(tenant_id, scope_type, scope_id)
+
+        key = self._get_budget_key(tenant_id, scope_type, scope_id)
+        if key in self._local_storage:
+            self._local_storage[key]["tokens_used"] = max(0, self._local_storage[key].get("tokens_used", 0) + delta)
+            return await self.get_budget_snapshot(tenant_id, scope_type, scope_id)
+
+        try:
+            redis = await get_redis_client()
+            await redis.hincrby(key, "tokens_used", delta)
+        except Exception:
+            pass
+        return await self.get_budget_snapshot(tenant_id, scope_type, scope_id)
+
     async def reset_budget(self, tenant_id: str, scope_type: str, scope_id: str) -> None:
         key = self._get_budget_key(tenant_id, scope_type, scope_id)
         self._local_storage.pop(key, None)

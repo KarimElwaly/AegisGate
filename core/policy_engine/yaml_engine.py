@@ -264,8 +264,8 @@ class YamlPolicyEngine(PolicyEngineInterface):
 
             if matched:
                 act = rule.action
-                rule_decision = DecisionEnum(act.decision) if isinstance(act.decision, str) else act.decision
-                rule_severity = SeverityEnum(act.severity) if isinstance(act.severity, str) else act.severity
+                rule_decision = DecisionEnum(act.decision.upper()) if isinstance(act.decision, str) else act.decision
+                rule_severity = SeverityEnum(act.severity.lower()) if isinstance(act.severity, str) else act.severity
                 risk = severity_risk.get(rule_severity, 0.5)
 
                 max_risk = max(max_risk, risk)

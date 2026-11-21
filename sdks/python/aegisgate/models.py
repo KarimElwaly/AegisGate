@@ -45,6 +45,7 @@ class ContentModel(BaseModel):
     trusted_instructions: str | None = None
     untrusted_data: Any | None = None
     streaming: bool = False
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EvaluationRequest(BaseModel):

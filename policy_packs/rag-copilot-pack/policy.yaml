@@ -1,0 +1,70 @@
+id: rag-copilot-pack
+name: Enterprise RAG Copilot Policy Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Enterprise RAG copilot with document ACL clearance enforcement, memory write sanitization, and PII masking.
+
+scanners:
+  - name: rag_acl_guard
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      default_caller_clearance: internal
+      enforce_hierarchical_clearance: true
+      enforce_group_acls: true
+      action_on_violation: block
+
+  - name: memory_poison_guard
+    enabled: true
+    tier: 1
+    timeout_ms: 50
+    on_timeout: flag
+    config:
+      block_directive_override: true
+      block_credential_harvesting: true
+      action_on_poison: block
+
+  - name: ner_pii_scanner
+    enabled: true
+    tier: 2
+    timeout_ms: 200
+    on_timeout: flag
+    config:
+      action_on_match: flag
+
+resolvers: []
+budgets:
+  max_tokens: 50000
+  max_tool_calls: 50
+
+rules:
+  - id: rag-block-clearance-violation
+    name: Block RAG Chunks Exceeding Caller Clearance
+    priority: 5
+    stages: ["rag_retrieval", "llm_input"]
+    condition:
+      field: "scanner_findings.rag_acl_guard.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Retrieved document chunk violates caller ACL clearance"
+      compliance_tags: ["SOC2-CC6.1", "ISO27001-A.9.4"]
+
+  - id: rag-block-memory-poisoning
+    name: Block Poisoned Memory Writes
+    priority: 5
+    stages: ["memory_write", "tool_pre_call"]
+    condition:
+      field: "scanner_findings.memory_poison_guard.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Instruction override or credential harvesting detected in memory write"
+      compliance_tags: ["OWASP-LLM03", "MITRE-ATLAS-AML.T0054"]

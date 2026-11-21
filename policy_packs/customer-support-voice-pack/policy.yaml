@@ -1,0 +1,60 @@
+id: customer-support-voice-pack
+name: Omnichannel Customer Support & Voice Policy Pack
+version: 1.0.0
+extends: base-enterprise
+execution_mode: enforce
+description: Omnichannel customer support guardrails with semantic topic boundaries, safety & toxicity blocking, and prompt injection defense.
+
+scanners:
+  - name: topic_guard
+    enabled: true
+    tier: 2
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      blocked_topics: ["cryptocurrency", "financial_advice", "partisan_politics"]
+      competitor_keywords: ["competitor_corp", "rival_ai"]
+      action_on_violation: block
+
+  - name: safety_toxicity_scanner
+    enabled: true
+    tier: 2
+    timeout_ms: 100
+    on_timeout: flag
+    config:
+      categories: ["harassment_threats", "self_harm", "hate_speech"]
+      action_on_toxic: block
+
+resolvers: []
+budgets:
+  max_tokens: 20000
+  max_tool_calls: 20
+
+rules:
+  - id: cs-block-off-topic
+    name: Block Off-Topic / Prohibited Domains
+    priority: 8
+    stages: ["llm_input", "llm_output"]
+    condition:
+      field: "scanner_findings.topic_guard.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: high
+      reason: "Off-topic conversation detected (cryptocurrency, financial advice, or competitor advocacy)"
+      compliance_tags: ["BRAND-SAFETY-01"]
+
+  - id: cs-block-toxic-content
+    name: Block Toxic / Threatening Language
+    priority: 2
+    stages: ["llm_input", "llm_output"]
+    condition:
+      field: "scanner_findings.safety_toxicity_scanner.status"
+      operator: "eq"
+      value: "block"
+    action:
+      decision: DENY
+      severity: critical
+      reason: "Hostile, threatening, or self-harm content blocked by safety policy"
+      compliance_tags: ["SAFETY-POLICY-01", "EU-AI-ACT-ARTICLE-9"]
