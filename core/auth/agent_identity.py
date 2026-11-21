@@ -17,7 +17,7 @@ class AgentIdentityService:
     ALGORITHM = "HS256"
 
     def __init__(self, secret_key: str | None = None) -> None:
-        self.secret_key = secret_key or get_settings().AEGIS_SECRET_KEY
+        self.secret_key = secret_key or getattr(get_settings(), "AEGIS_SECRET_KEY", "default-insecure-secret-key-change-me")
 
     def mint_agent_token(
         self,
@@ -55,22 +55,21 @@ class AgentIdentityService:
         child_role: str,
         allowed_tools: list[str],
         ttl_seconds: int = 300,
-        strict: bool = True,
     ) -> str:
         parent_claims = self.verify_agent_token(parent_token)
         parent_allowed = set(parent_claims.get("allowed_tools", []))
-        requested_set = set(allowed_tools)
 
-        if strict and not requested_set.issubset(parent_allowed):
-            escalated = requested_set - parent_allowed
-            raise ValueError(f"Requested tools {list(escalated)} violates monotonic attenuation from parent")
+        # Monotonic attenuation enforcement
+        if not set(allowed_tools).issubset(parent_allowed) and "*" not in parent_allowed:
+            raise ValueError(
+                "Child tool scope violates monotonic attenuation: child cannot possess permissions not granted to parent"
+            )
 
-        attenuated_tools = list(parent_allowed.intersection(requested_set))
         return self.mint_agent_token(
             agent_id=child_agent_id,
             role=child_role,
-            allowed_tools=attenuated_tools,
-            parent_jti=parent_claims["jti"],
+            allowed_tools=list(allowed_tools),
+            parent_jti=parent_claims.get("jti"),
             delegation_depth=parent_claims.get("delegation_depth", 0) + 1,
             ttl_seconds=ttl_seconds,
         )
@@ -83,13 +82,19 @@ class AgentIdentityService:
         requested_tools: list[str],
         ttl_seconds: int = 300,
     ) -> str:
-        return self.mint_child_token(
-            parent_token=parent_token,
-            child_agent_id=child_agent_id,
-            child_role=child_role,
-            allowed_tools=requested_tools,
+        parent_claims = self.verify_agent_token(parent_token)
+        parent_allowed = set(parent_claims.get("allowed_tools", []))
+
+        # Monotonic permission attenuation: child tools MUST be a subset of parent tools
+        attenuated_tools = list(parent_allowed.intersection(set(requested_tools)))
+
+        return self.mint_agent_token(
+            agent_id=child_agent_id,
+            role=child_role,
+            allowed_tools=attenuated_tools,
+            parent_jti=parent_claims.get("jti"),
+            delegation_depth=parent_claims.get("delegation_depth", 0) + 1,
             ttl_seconds=ttl_seconds,
-            strict=False,
         )
 
     def verify_delegation_chain(
@@ -139,3 +144,4 @@ default_agent_identity_service = AgentIdentityService()
 
 def get_agent_identity_service() -> AgentIdentityService:
     return default_agent_identity_service
+

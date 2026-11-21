@@ -72,7 +72,75 @@ class AuditShadowStage:
             except Exception as e:
                 logger.warning("audit_recording_failed", error=str(e))
 
-        # 3. Live Shadow Mode Evaluation
+        # 3. Shadow AI & Asset Auto-Discovery
+        try:
+            from core.discovery.service import get_discovery_service
+            disc_svc = get_discovery_service()
+            cur_stage_str = req.stage.value if hasattr(req.stage, "value") else str(req.stage)
+            is_sync = getattr(req, "record_audit_sync", False) or get_settings().AEGIS_ENV == "test"
+
+            # Discover models
+            if req.action.target:
+                if is_sync:
+                    await disc_svc.record_asset(
+                        tenant_id=req.tenant_id,
+                        workspace_id=req.workspace_id,
+                        asset_type="model",
+                        name=req.action.target,
+                    )
+                else:
+                    asyncio.create_task(
+                        disc_svc.record_asset(
+                            tenant_id=req.tenant_id,
+                            workspace_id=req.workspace_id,
+                            asset_type="model",
+                            name=req.action.target,
+                        )
+                    )
+
+            # Discover tools
+            if cur_stage_str in ("tool_pre_call", "tool_post_call") and req.action.name:
+                if is_sync:
+                    await disc_svc.record_asset(
+                        tenant_id=req.tenant_id,
+                        workspace_id=req.workspace_id,
+                        asset_type="tool",
+                        name=req.action.name,
+                    )
+                else:
+                    asyncio.create_task(
+                        disc_svc.record_asset(
+                            tenant_id=req.tenant_id,
+                            workspace_id=req.workspace_id,
+                            asset_type="tool",
+                            name=req.action.name,
+                        )
+                    )
+
+            # Discover agents
+            if req.actor.id and req.actor.id not in ("default_actor", "llm_client", "mcp_client"):
+                if is_sync:
+                    await disc_svc.record_asset(
+                        tenant_id=req.tenant_id,
+                        workspace_id=req.workspace_id,
+                        asset_type="agent",
+                        name=req.actor.id,
+                        metadata={"role": req.actor.role},
+                    )
+                else:
+                    asyncio.create_task(
+                        disc_svc.record_asset(
+                            tenant_id=req.tenant_id,
+                            workspace_id=req.workspace_id,
+                            asset_type="agent",
+                            name=req.actor.id,
+                            metadata={"role": req.actor.role},
+                        )
+                    )
+        except Exception:
+            pass
+
+        # 4. Live Shadow Mode Evaluation
         shadow_pack_id = getattr(req, "shadow_policy_pack_id", None)
         if shadow_pack_id:
             asyncio.create_task(

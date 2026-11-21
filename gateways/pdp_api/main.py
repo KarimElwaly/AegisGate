@@ -16,6 +16,7 @@ from gateways.pdp_api.routes import (
     audit_router,
     auth_router,
     budgets_router,
+    discovery_router,
     evaluate_router,
     health_router,
     kill_switch_router,
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(approvals_router)
     app.include_router(audit_router)
     app.include_router(simulate_router)
+    app.include_router(discovery_router)
 
     # Integration Gateways
     app.include_router(llm_proxy_router)

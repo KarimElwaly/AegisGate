@@ -7,6 +7,8 @@ import {
   PowerOff,
   History,
   Layers,
+  Building2,
+  Compass,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -23,6 +25,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'overview', label: 'Overview & Telemetry', icon: LayoutDashboard },
     { id: 'policies', label: 'Policy Pack Studio', icon: FileCode },
+    { id: 'tenants', label: 'Tenants & Virtual Keys', icon: Building2 },
+    { id: 'discovery', label: 'MCP & Shadow Discovery', icon: Compass },
     { id: 'plugins', label: 'Plugin & Scanner Registry', icon: Blocks },
     {
       id: 'hitl',

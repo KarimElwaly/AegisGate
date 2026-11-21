@@ -89,3 +89,4 @@ class SafetyToxicityScanner(BaseScanner):
             )
 
         return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
+

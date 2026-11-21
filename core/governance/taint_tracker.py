@@ -68,3 +68,4 @@ default_taint_tracker = TaintTracker()
 
 def get_taint_tracker() -> TaintTracker:
     return default_taint_tracker
+

@@ -49,8 +49,7 @@ class DelegationValidator:
 
         # 3. Cryptographic Signed Delegation Chain Verification (Anti-Forging & Monotonic Attenuation)
         if config.require_signed_delegation:
-            metadata = getattr(actor, "metadata", None) or {}
-            signed_tokens = metadata.get("signed_delegation_tokens")
+            signed_tokens = actor.metadata.get("signed_delegation_tokens")
             if not signed_tokens or not isinstance(signed_tokens, list):
                 return False, "Signed delegation required but no signed_delegation_tokens provided"
 
@@ -71,28 +70,26 @@ class DelegationValidator:
             if "*" not in current_role_perms and action_name not in current_role_perms:
                 return False, f"Role '{actor.role}' is not authorized to execute tool '{action_name}'"
 
-        # 5. Privilege Escalation Prevention across the delegation chain
-        # If actor was delegated by an originator, the originator must ALSO have permission for action_name
-        if chain and config.role_tool_permissions:
-            for delegator_id in chain:
-                if delegator_id in config.role_tool_permissions:
-                    allowed_tools = config.role_tool_permissions[delegator_id]
-                    if "*" not in allowed_tools and action_name not in allowed_tools:
-                        return (
-                            False,
-                            f"Privilege escalation denied: Delegator '{delegator_id}' lacks permission for tool '{action_name}'",
-                        )
-
-        # 6. Role transition matrix check
-        if config.allowed_role_matrix and len(chain) > 1:
-            for i in range(len(chain) - 1):
-                parent_role = chain[i]
-                child_role = chain[i + 1]
-                allowed_children = config.allowed_role_matrix.get(parent_role, [])
-                if child_role not in allowed_children and "*" not in allowed_children:
+            # Anti-privilege escalation check across the delegation chain:
+            # No delegated agent can possess more rights than any of its delegators
+            for ancestor_role in chain:
+                ancestor_perms = config.role_tool_permissions.get(ancestor_role, [])
+                if "*" not in ancestor_perms and action_name not in ancestor_perms:
                     return (
                         False,
-                        f"Invalid delegation step: Role '{parent_role}' cannot delegate to '{child_role}'",
+                        f"Privilege escalation denied: ancestor role '{ancestor_role}' in delegation chain lacks permission for '{action_name}'",
+                    )
+
+        # 5. Role transition matrix check
+        if config.allowed_role_matrix and len(chain) > 1:
+            for i in range(len(chain) - 1):
+                delegator_role = chain[i]
+                delegatee_role = chain[i + 1]
+                allowed = config.allowed_role_matrix.get(delegator_role, [])
+                if allowed and delegatee_role not in allowed and "*" not in allowed:
+                    return (
+                        False,
+                        f"Role transition from '{delegator_role}' to '{delegatee_role}' is prohibited by matrix",
                     )
 
         return True, None

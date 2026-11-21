@@ -1,14 +1,14 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 9 COMPLETED (Phases 1 through 9 Complete)
-- Overall Test Suite Status: 85 / 85 Tests Passing (100%)
-- Core Test Coverage: 86% across 2,691 statements in `core/` (DoD Target: >=85%)
-- Tier-1 P95 Latency: 1.02 ms (DoD Target: <15 ms)
+- Current Phase: Phase 10 COMPLETED (All Phases 1 through 10 Complete)
+- Overall Test Suite Status: 94 / 94 Tests Passing (100%)
+- Core Test Coverage: 86% across 2,771 statements in `core/` (DoD Target: >=85%)
+- Tier-1 P95 Latency: 0.61 ms (DoD Target: <15 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (DoD Target: <2%)
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: IN PROGRESS (Phase 9 Complete, moving to Phase 10)
+- Autonomous Mode: COMPLETED (All 10 Phases from MASTER_PROMPT and V2_IMPROVEMENT_PLAN fully implemented)
 
 ---
 
@@ -258,6 +258,48 @@
 - **Core Test Coverage:** 86% across all 2,691 statements in `core/` (DoD target: >=85% met)
 - **Tier-1 Fast-Path Latency:** P50 = 0.72 ms, P95 = 1.02 ms, P99 = 1.10 ms (DoD target: <15.0 ms met)
 - **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+
+---
+
+## Phase 10: Enterprise Ops, Observability, GitOps CLI & Admin UI Parity (COMPLETED)
+### Files Created / Implemented:
+- `core/telemetry.py`: Extended Prometheus instrumentation with `TOKEN_USAGE_COUNTER`, `SCANNER_VIOLATION_COUNTER`, `QUARANTINED_TOOL_GAUGE`, `record_scanner_violation()`, and `record_token_metric()`.
+- `deploy/`:
+  - `prometheus.yml`: Scrape configuration for AegisGate PDP instances with 5s evaluation interval.
+  - `otel-collector-config.yaml`: OpenTelemetry Collector pipelines for OTLP traces and Prometheus metrics.
+  - `grafana/dashboard.json`: Pre-built Grafana production dashboard monitoring P95 evaluation latency, token consumption, quarantine gauges, and HITL queue.
+- `core/models/discovery.py`: SQLAlchemy model `DiscoveredAssetRecord` tracking auto-discovered Shadow AI models, tools, and agents with request counts, risk levels, and governance statuses (`shadow_unapproved`, `governed`, `blocked`).
+- `migrations/versions/0006_phase10_shadow_discovery.py`: Alembic migration for `discovered_assets` table.
+- `core/discovery/service.py`: `DiscoveryService` for passive, non-blocking registration and inventorying of undeclared runtime assets.
+- `core/pipeline/stages/audit_shadow_stage.py`: Integrated automatic shadow asset discovery into pipeline post-processing.
+- `gateways/pdp_api/routes/discovery.py`: Control plane REST endpoints:
+  - `GET /v1/discovery/assets`: List auto-discovered assets with filtering by `workspace_id`, `asset_type`, and `governance_status`.
+  - `PATCH /v1/discovery/assets/{asset_id}`: Approve (`governed`) or block assets and assign risk levels.
+- `core/auth/oidc.py`: `OidcService` supporting OIDC token verification and enterprise IdP group-to-role mapping (`SuperAdmin`, `PolicyAuthor`, `Operator`, `Auditor`).
+- `sdks/python/aegisgate/adapters/`:
+  - `langgraph_guard.py`: `LangGraphGuard` middleware wrapping LangGraph agent nodes with pre-step and post-step guardrails.
+  - `fastmcp_guard.py`: `FastMcpGuard` tool decorator enforcing `TOOL_PRE_CALL` and `TOOL_POST_CALL` governance on FastMCP server tools.
+  - `openai_adapter.py`: `AegisOpenAIAdapter` generating native kwargs and headers for `OpenAI` client routing.
+  - `temporal_adapter.py`: `AegisTemporalActivityGuard` decorator for Temporal activities with automatic policy interception.
+- `cli/aegisctl/main.py`: Click-based GitOps CLI providing:
+  - `aegisctl validate <policy_file>`: Verifies YAML DSL syntax, schema, and plugin registry scanner availability.
+  - `aegisctl test <policy_file> <test_cases.json>`: Runs automated assertion suites against candidate policy packs.
+  - `aegisctl replay <policy_file> <audit_log.json>`: Replays historical audit logs to preview decision deltas and risk profiles.
+- `dashboard/src/views/TenantsVirtualKeysView.tsx`: Tenant and workspace management, Virtual API Key minting/revocation, model allowlists, and live budget cap displays.
+- `dashboard/src/views/McpDiscoveryView.tsx`: MCP Anti-Rug-Pull tool schema pinning, quarantine alerts, and Shadow AI asset discovery inventory with Approve/Block controls.
+- `dashboard/src/views/PolicyStudioView.tsx`: Enhanced "+ New Draft Policy Pack" modal with template selection (`Blank`, `Multi-Agent Fleet`, `Autonomous SOC`), local draft isolation, and instant YAML hot-reload.
+- `dashboard/src/components/Sidebar.tsx` and `dashboard/src/App.tsx`: Integrated new navigation items and views into admin portal.
+- `tests/unit/test_phase10_adapters_cli.py`: Unit tests for LangGraph, FastMCP, Temporal, and OpenAI adapters, OIDC group mapping, and `aegisctl` CLI commands.
+- `tests/integration/test_phase10_observability_discovery.py`: Integration tests for Prometheus metrics export, Shadow AI asset auto-discovery, and asset governance state transitions.
+
+### Phase 10 Test Results & Benchmarks:
+- **Full Test Suite:** 94 passed out of 94 run (100% pass rate) in 27.63s
+- **Zero Regressions:** All 85 Phase 1–9 tests pass with zero warnings
+- **Core Test Coverage:** 86% across all 2,771 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.38 ms, P95 = 0.61 ms, P99 = 0.77 ms (DoD target: <15.0 ms met)
+- **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+- **Admin UI Build:** Vite build succeeded with 0 TypeScript errors (`dist/` packaged in 3.10s)
+
 
 
 

@@ -50,3 +50,4 @@ class McpToolPinRecord(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
+

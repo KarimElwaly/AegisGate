@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 from core.bootstrap import bootstrap_system
 from core.config import get_settings
 from core.database import Base, close_database, get_engine
+import core.models  # noqa: F401
 from gateways.pdp_api.main import app
 
 

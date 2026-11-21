@@ -168,3 +168,4 @@ async def test_multimodal_attachment_payload():
     v = await orchestrator.evaluate(req)
     assert v.decision == DecisionEnum.ALLOW
     assert v.latency_ms > 0
+

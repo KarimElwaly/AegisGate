@@ -7,6 +7,8 @@ import { PluginRegistryView } from './views/PluginRegistryView';
 import { HitlRoomView } from './views/HitlRoomView';
 import { KillSwitchView } from './views/KillSwitchView';
 import { AuditForensicsView } from './views/AuditForensicsView';
+import { TenantsVirtualKeysView } from './views/TenantsVirtualKeysView';
+import { McpDiscoveryView } from './views/McpDiscoveryView';
 import {
   fetchKPIs,
   fetchPolicyPacks,
@@ -85,6 +87,8 @@ export const App: React.FC = () => {
           <div className="max-w-7xl mx-auto">
             {currentTab === 'overview' && <OverviewView kpis={kpis} tenantId={tenantId} />}
             {currentTab === 'policies' && <PolicyStudioView packs={packs} tenantId={tenantId} onRefresh={loadData} />}
+            {currentTab === 'tenants' && <TenantsVirtualKeysView tenantId={tenantId} />}
+            {currentTab === 'discovery' && <McpDiscoveryView tenantId={tenantId} />}
             {currentTab === 'plugins' && <PluginRegistryView plugins={plugins} />}
             {currentTab === 'hitl' && (
               <HitlRoomView

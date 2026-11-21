@@ -1,3 +1,8 @@
+from .adapters import (
+    AegisOpenAIAdapter,
+    FastMcpGuard,
+    LangGraphGuard,
+)
 from .client import (
     AegisClient,
     current_session_id,
@@ -28,12 +33,15 @@ __all__ = [
     "ActorModel",
     "AegisClient",
     "AegisGateError",
+    "AegisOpenAIAdapter",
     "BudgetExceededError",
     "ContentModel",
     "DecisionEnum",
     "EvaluationRequest",
     "EvaluationVerdict",
+    "FastMcpGuard",
     "KillSwitchActiveError",
+    "LangGraphGuard",
     "PolicyViolationError",
     "StageEnum",
     "current_session_id",

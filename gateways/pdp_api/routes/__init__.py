@@ -3,6 +3,7 @@ from gateways.pdp_api.routes.approvals import router as approvals_router
 from gateways.pdp_api.routes.audit import router as audit_router
 from gateways.pdp_api.routes.auth import router as auth_router
 from gateways.pdp_api.routes.budgets import router as budgets_router
+from gateways.pdp_api.routes.discovery import router as discovery_router
 from gateways.pdp_api.routes.evaluate import router as evaluate_router
 from gateways.pdp_api.routes.health import router as health_router
 from gateways.pdp_api.routes.kill_switch import router as kill_switch_router
@@ -18,6 +19,7 @@ __all__ = [
     "audit_router",
     "auth_router",
     "budgets_router",
+    "discovery_router",
     "evaluate_router",
     "health_router",
     "kill_switch_router",
