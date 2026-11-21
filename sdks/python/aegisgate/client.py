@@ -5,10 +5,16 @@ from typing import Any
 
 import httpx
 
-from core.schemas.common import DecisionEnum, StageEnum
-from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
-from core.schemas.verdicts import EvaluationVerdict
-from sdks.python.aegisgate.exceptions import AegisGateError
+from .exceptions import AegisGateError
+from .models import (
+    ActionModel,
+    ActorModel,
+    ContentModel,
+    DecisionEnum,
+    EvaluationRequest,
+    EvaluationVerdict,
+    StageEnum,
+)
 
 current_session_id: ContextVar[str | None] = ContextVar("aegis_session_id", default=None)
 current_trace_id: ContextVar[str | None] = ContextVar("aegis_trace_id", default=None)

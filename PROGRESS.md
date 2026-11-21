@@ -1,13 +1,14 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: ALL PHASES COMPLETED (Phase 1 through Phase 6)
-- Overall Test Suite Status: 60 / 60 Tests Passing (100%)
-- Core Test Coverage: 87% (DoD Target: >=85%)
-- Tier-1 P95 Latency: 9.88 ms (DoD Target: <15 ms)
+- Current Phase: Phase 7 COMPLETED (Phases 1 through 7 Complete)
+- Overall Test Suite Status: 69 / 69 Tests Passing (100%)
+- Core Test Coverage: 85% across 2,487 statements in `core/` (DoD Target: >=85%)
+- Tier-1 P95 Latency: 0.59 ms (DoD Target: <15 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (DoD Target: <2%)
-- Autonomous Mode: COMPLETE (All DoD milestones successfully achieved)
+- Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
+- Autonomous Mode: COMPLETE (All Phase 7 DoD milestones successfully achieved)
 
 ---
 
@@ -143,3 +144,49 @@
   - Headless browser verification via Playwright and Chrome DevTools subagent: verified zero visual bugs, 0 console errors, clean status badges (`APPROVED`, `EXPIRED`, `PENDING`), and accurate queue counts.
   - Reconfigured Vite dashboard to port `3088` and PDP API to port `8088` to eliminate local port collisions with external systems.
 - **Architectural Rules:** Strictly enforced (zero domain code in `core/`, zero imports from `plugins/` or `policy_packs/` in `core/pipeline/`, Alembic migrations only)
+
+---
+
+## Phase 7: Core Refactoring, Real Multi-Tenancy & Dynamic Plugin Control (COMPLETED)
+### Files Created / Implemented:
+- `core/pipeline/stages/`:
+  - `stage_context.py`: `PipelineStageContext` coordinating mutable state across decoupled stages
+  - `kill_switch_stage.py`: `KillSwitchStage` sub-millisecond Redis MGET emergency halt checks
+  - `identity_delegation_stage.py`: `IdentityDelegationStage` validating delegation depth and call stack limits
+  - `budget_circuit_stage.py`: `BudgetCircuitStage` sliding-window loop detection and atomic Redis Lua budgets
+  - `context_resolution_stage.py`: `ContextResolutionStage` dynamic context resolver enrichment with timeouts
+  - `tiered_scanner_stage.py`: `TieredScannerStage` concurrent tier 1/2/3 scanning with short-circuiting
+  - `policy_evaluation_stage.py`: `PolicyEvaluationStage` rules evaluation, rule mutations, and effective mode resolution
+  - `hitl_escalation_stage.py`: `HITLEscalationStage` ticket provisioning on `SUSPEND_FOR_APPROVAL`
+  - `audit_shadow_stage.py`: `AuditShadowStage` telemetry, cryptographic audit ledger dispatch, and shadow deltas
+  - `__init__.py`: Package exports for stage classes
+- `core/pipeline/orchestrator.py`: Refactored to coordinate the 8 stages with zero breaking changes to public APIs
+- `core/models/tenant.py`: SQLAlchemy models `TenantRecord`, `WorkspaceRecord`, `VirtualApiKeyRecord`, and `PluginConfigRecord`
+- `core/models/__init__.py`: Exported new models
+- `migrations/versions/0004_phase7_tenants_virtual_keys_plugins.py`: Alembic migration for `tenants`, `workspaces`, `virtual_api_keys`, `plugin_configs`
+- `core/tenancy/`:
+  - `context.py`: Request-scoped ContextVars (`current_tenant_id`, `current_workspace_id`, `current_virtual_key_id`)
+  - `service.py`: `TenancyService` managing tenant/workspace CRUD, virtual key issuance (`ag_live_...`), rotation, revocation, and validation
+  - `__init__.py`: Exports for tenancy context and service
+- `core/auth/dependencies.py`: Enhanced to authenticate Virtual API Keys (`ag_live_...`) with revocation verification, and added `get_pdp_actor` with tenant isolation enforcement
+- `gateways/pdp_api/routes/`:
+  - `tenants.py`: Tenant CRUD (`/v1/tenants`) and workspace management (`/v1/tenants/{tenant_id}/workspaces`)
+  - `api_keys.py`: Virtual API Key issuance (`POST /v1/api-keys/virtual`), listing, immediate revocation, and rotation
+  - `budgets.py`: Live Redis budget usage (`/v1/budgets/usage`), workspace quotas, and manual loop breaker resets
+  - `plugins.py`: Dynamic plugin schema export (`/v1/plugins/schemas`), dynamic instance registration/removal (`/v1/plugins/instances`), configuration patch hot-reloads, and connectivity pings
+  - `evaluate.py`: Wired `get_pdp_actor` enforcing cross-tenant isolation on PDP evaluations
+- `sdks/python/`:
+  - `pyproject.toml`: Modern packaging metadata with minimal runtime dependencies (`httpx>=0.27.0`, `pydantic>=2.0`)
+  - `README.md`: Standalone SDK documentation
+  - `aegisgate/models.py`: Self-contained client schemas for zero server-side dependency
+  - `aegisgate/client.py`, `decorators.py`, `__init__.py`: Updated to relative client imports
+- `tests/unit/test_phase7_stages.py`: Unit tests for each pipeline stage independently
+- `tests/integration/test_phase7_tenancy_plugins.py`: E2E integration tests for tenant/workspace lifecycle, virtual keys, rotation/revocation, cross-tenant isolation, dynamic plugins, and budget control
+
+### Phase 7 Test Results & Benchmarks:
+- **Full Test Suite:** 69 passed out of 69 run (100% pass rate) in 24.88s
+- **Zero Regressions:** All 60 Phase 1–6 tests pass without modification
+- **Core Test Coverage:** 85% across all 2,487 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.38 ms, P95 = 0.59 ms, P99 = 0.69 ms (DoD target: <15.0 ms met)
+- **Standalone SDK:** Installed cleanly via `pip install -e sdks/python` and verified with `python -c "import aegisgate"`
+

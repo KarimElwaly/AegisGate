@@ -3,9 +3,9 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
-from core.schemas.common import DecisionEnum, StageEnum
-from sdks.python.aegisgate.client import AegisClient
-from sdks.python.aegisgate.exceptions import PolicyViolationError
+from .client import AegisClient
+from .exceptions import PolicyViolationError
+from .models import DecisionEnum, StageEnum
 
 _global_client: AegisClient | None = None
 

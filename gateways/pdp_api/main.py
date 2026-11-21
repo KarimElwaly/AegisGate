@@ -11,15 +11,18 @@ from core.redis_client import close_redis_client
 from gateways.llm_proxy import llm_proxy_router
 from gateways.mcp_tool_gateway import tool_gateway_router
 from gateways.pdp_api.routes import (
+    api_keys_router,
     approvals_router,
     audit_router,
     auth_router,
+    budgets_router,
     evaluate_router,
     health_router,
     kill_switch_router,
     plugins_router,
     policies_router,
     simulate_router,
+    tenants_router,
 )
 
 
@@ -57,6 +60,9 @@ def create_app() -> FastAPI:
     # Core PDP & Governance APIs
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(tenants_router)
+    app.include_router(api_keys_router)
+    app.include_router(budgets_router)
     app.include_router(evaluate_router)
     app.include_router(policies_router)
     app.include_router(plugins_router)
