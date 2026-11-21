@@ -200,3 +200,4 @@ default_tenancy_service = TenancyService()
 
 def get_tenancy_service() -> TenancyService:
     return default_tenancy_service
+

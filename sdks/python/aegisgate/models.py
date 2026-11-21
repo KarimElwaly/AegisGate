@@ -117,3 +117,4 @@ class EvaluationVerdict(BaseModel):
     budget_snapshot: BudgetSnapshot = Field(default_factory=BudgetSnapshot)
     approval_ticket: ApprovalTicketInfo | None = None
     latency_ms: float = 0.0
+

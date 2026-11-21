@@ -19,6 +19,11 @@ from core.governance.loop_detector import (
     default_loop_detector,
     get_loop_detector,
 )
+from core.governance.taint_tracker import (
+    TaintTracker,
+    default_taint_tracker,
+    get_taint_tracker,
+)
 
 __all__ = [
     "BudgetManager",
@@ -26,13 +31,15 @@ __all__ = [
     "DelegationValidator",
     "KillSwitchService",
     "LoopDetector",
+    "TaintTracker",
     "default_budget_manager",
     "default_delegation_validator",
     "default_kill_switch_service",
     "default_loop_detector",
+    "default_taint_tracker",
     "get_budget_manager",
     "get_delegation_validator",
     "get_kill_switch_service",
     "get_loop_detector",
+    "get_taint_tracker",
 ]
-

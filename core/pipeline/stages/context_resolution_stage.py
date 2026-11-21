@@ -45,3 +45,4 @@ class ContextResolutionStage:
                 logger.warning("Context resolver failed", name=resolver.name, error=str(e))
 
         ctx.resolved_context = resolved
+

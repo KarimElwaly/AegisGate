@@ -1,12 +1,13 @@
 from typing import Any
 
+from core.governance.taint_tracker import get_taint_tracker
 from core.pipeline.stages.stage_context import PipelineStageContext
 from core.policy_engine.yaml_engine import YamlPolicyEngine
 from core.schemas.common import DecisionEnum, EffectiveModeEnum
 
 
 class PolicyEvaluationStage:
-    """Stage 6: Policy rules evaluation, rule mutations, and effective mode resolution."""
+    """Stage 6: Policy rules evaluation, rule mutations, session taints, and effective mode resolution."""
 
     def __init__(self, policy_engine: YamlPolicyEngine) -> None:
         self.policy_engine = policy_engine
@@ -14,6 +15,22 @@ class PolicyEvaluationStage:
     async def execute(self, ctx: PipelineStageContext) -> dict[str, Any]:
         req = ctx.request
         pack = ctx.policy_pack
+
+        # Fetch active session taints if session_id is present
+        taint_tracker = get_taint_tracker()
+        session_taints: set[str] = set()
+        if req.session_id:
+            try:
+                session_taints = await taint_tracker.get_taints(req.tenant_id, req.session_id)
+            except Exception:
+                session_taints = set()
+
+        ctx.resolved_context["taints"] = list(session_taints)
+        ctx.resolved_context["session"] = {
+            "id": req.session_id,
+            "taints": list(session_taints),
+            "declared_scope": req.metadata.get("declared_scope") if req.metadata else None,
+        }
 
         rule_decision, risk_score, triggered_rules, rule_mutations = await self.policy_engine.evaluate(
             request=req,
@@ -24,6 +41,17 @@ class PolicyEvaluationStage:
 
         ctx.triggered_rules = triggered_rules
         ctx.risk_score = risk_score
+
+        # Persist any newly added taints from matching rules
+        if "add_taints" in rule_mutations and req.session_id:
+            try:
+                await taint_tracker.add_taints(
+                    tenant_id=req.tenant_id,
+                    session_id=req.session_id,
+                    taints=rule_mutations["add_taints"],
+                )
+            except Exception:
+                pass
 
         if "mutated_content" in rule_mutations:
             ctx.mutated_content_map.update(rule_mutations["mutated_content"])
@@ -51,3 +79,4 @@ class PolicyEvaluationStage:
             ctx.would_have_decided = nominal_decision
 
         return rule_mutations
+

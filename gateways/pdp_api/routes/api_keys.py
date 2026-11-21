@@ -141,3 +141,4 @@ async def rotate_virtual_key(
         "api_key": plaintext,  # Returned only once
         "created_at": new_rec.created_at.isoformat() if new_rec.created_at else None,
     }
+

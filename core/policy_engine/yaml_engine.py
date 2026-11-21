@@ -133,6 +133,16 @@ class YamlPolicyEngine(PolicyEngineInterface):
             if isinstance(actual_val, str) and isinstance(expected_val, str):
                 return expected_val.lower() in actual_val.lower()
             return False
+        elif op == "contains_any":
+            if isinstance(actual_val, (list, tuple, set)):
+                targets = expected_val if isinstance(expected_val, (list, tuple, set)) else [expected_val]
+                return any(t in actual_val for t in targets)
+            return False
+        elif op == "contains_all":
+            if isinstance(actual_val, (list, tuple, set)):
+                targets = expected_val if isinstance(expected_val, (list, tuple, set)) else [expected_val]
+                return all(t in actual_val for t in targets)
+            return False
         elif op == "regex":
             if actual_val is None:
                 return False
@@ -198,10 +208,19 @@ class YamlPolicyEngine(PolicyEngineInterface):
 
         current_stage = request.stage.value if hasattr(request.stage, "value") else str(request.stage)
 
+        session_info = resolved_context.get("session") or {
+            "id": request.session_id,
+            "taints": list(resolved_context.get("taints", [])),
+            "declared_scope": request.metadata.get("declared_scope") if request.metadata else None,
+        }
+        if "taints" not in session_info:
+            session_info["taints"] = list(resolved_context.get("taints", []))
+
         context_bundle = {
             "stage": current_stage,
             "tenant_id": request.tenant_id,
             "workspace_id": request.workspace_id,
+            "session_id": request.session_id,
             "environment": request.environment,
             "actor": request.actor.model_dump(),
             "action": request.action.model_dump(),
@@ -210,6 +229,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
             "resolved_context": resolved_context,
             "scanner_findings": findings_map,
             "scanner_status": findings_status_map,
+            "session": session_info,
         }
 
         triggered_rules: list[TriggeredRule] = []
@@ -267,6 +287,11 @@ class YamlPolicyEngine(PolicyEngineInterface):
                     rule_mutations["mutated_parameters"] = act.mutated_parameters
                 if act.approval_config:
                     rule_mutations["approval_config"] = act.approval_config
+                if act.add_taints:
+                    existing_taints = rule_mutations.setdefault("add_taints", [])
+                    for t in act.add_taints:
+                        if t not in existing_taints:
+                            existing_taints.append(t)
 
                 # Update highest decision
                 if decision_priority.get(rule_decision, 0) > decision_priority.get(highest_decision, 0):

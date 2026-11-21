@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.auth.agent_identity import get_agent_identity_service
 from core.logger import get_logger
 from core.schemas.events import ActorModel
 
@@ -17,6 +18,8 @@ class DelegationPolicyConfig(BaseModel):
     role_tool_permissions: dict[str, list[str]] = Field(default_factory=dict)
     # denied_roles: roles that cannot execute actions
     denied_roles: list[str] = Field(default_factory=list)
+    # require_signed_delegation: cryptographically verify signed agent tokens with monotonic attenuation
+    require_signed_delegation: bool = False
 
 
 class DelegationValidator:
@@ -44,20 +47,34 @@ class DelegationValidator:
         if depth > config.max_delegation_depth:
             return False, f"Delegation depth {depth} exceeds maximum allowed depth {config.max_delegation_depth}"
 
-        # 3. Check role-tool permission for current actor
+        # 3. Cryptographic Signed Delegation Chain Verification (Anti-Forging & Monotonic Attenuation)
+        if config.require_signed_delegation:
+            metadata = getattr(actor, "metadata", None) or {}
+            signed_tokens = metadata.get("signed_delegation_tokens")
+            if not signed_tokens or not isinstance(signed_tokens, list):
+                return False, "Signed delegation required but no signed_delegation_tokens provided"
+
+            identity_svc = get_agent_identity_service()
+            is_valid, reason, leaf_tools = identity_svc.verify_delegation_chain(signed_tokens)
+            if not is_valid:
+                return False, f"Signed delegation failure: {reason}"
+
+            if leaf_tools and "*" not in leaf_tools and action_name not in leaf_tools:
+                return (
+                    False,
+                    f"Action '{action_name}' is not in cryptographically authorized tools: {leaf_tools}",
+                )
+
+        # 4. Check role-tool permission for current actor
         if config.role_tool_permissions:
             current_role_perms = config.role_tool_permissions.get(actor.role, [])
             if "*" not in current_role_perms and action_name not in current_role_perms:
                 return False, f"Role '{actor.role}' is not authorized to execute tool '{action_name}'"
 
-        # 4. Privilege Escalation Prevention across the delegation chain
+        # 5. Privilege Escalation Prevention across the delegation chain
         # If actor was delegated by an originator, the originator must ALSO have permission for action_name
         if chain and config.role_tool_permissions:
-            originator_id = chain[0]
-            # If originator has a known role or permissions in config
             for delegator_id in chain:
-                # Check if delegator role is mapped in permissions
-                # If delegator role is explicitly registered and lacks permission, deny!
                 if delegator_id in config.role_tool_permissions:
                     allowed_tools = config.role_tool_permissions[delegator_id]
                     if "*" not in allowed_tools and action_name not in allowed_tools:
@@ -66,7 +83,7 @@ class DelegationValidator:
                             f"Privilege escalation denied: Delegator '{delegator_id}' lacks permission for tool '{action_name}'",
                         )
 
-        # 5. Role transition matrix check
+        # 6. Role transition matrix check
         if config.allowed_role_matrix and len(chain) > 1:
             for i in range(len(chain) - 1):
                 parent_role = chain[i]
@@ -86,4 +103,3 @@ default_delegation_validator = DelegationValidator()
 
 def get_delegation_validator() -> DelegationValidator:
     return default_delegation_validator
-

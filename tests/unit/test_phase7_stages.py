@@ -125,3 +125,4 @@ async def test_tiered_scanner_and_policy_stages(mocker):
     rule_mutations = await policy_stage.execute(ctx)
     assert ctx.effective_decision == DecisionEnum.ALLOW
     assert ctx.risk_score == 0.0
+

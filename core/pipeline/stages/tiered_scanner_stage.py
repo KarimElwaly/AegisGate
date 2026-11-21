@@ -150,3 +150,4 @@ class TieredScannerStage:
                 if tier == 1 and res.status == "block":
                     short_circuit = True
                     ctx.short_circuit = True
+

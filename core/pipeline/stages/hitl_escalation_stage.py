@@ -56,3 +56,4 @@ class HITLEscalationStage:
                 status="pending",
                 required_approvals=approval_cfg.get("required_approvals", 1),
             )
+

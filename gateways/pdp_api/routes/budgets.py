@@ -105,3 +105,4 @@ async def reset_loop_circuit(
         "actor_id": payload.actor_id,
         "key_cleared": bool(deleted),
     }
+

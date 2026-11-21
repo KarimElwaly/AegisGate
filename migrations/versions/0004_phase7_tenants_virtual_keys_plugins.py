@@ -92,3 +92,4 @@ def downgrade() -> None:
     op.drop_table("virtual_api_keys")
     op.drop_table("workspaces")
     op.drop_table("tenants")
+

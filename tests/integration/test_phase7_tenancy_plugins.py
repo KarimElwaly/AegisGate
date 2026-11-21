@@ -246,3 +246,4 @@ async def test_budgets_and_loop_api(api_client: AsyncClient, superadmin_headers)
     )
     assert res_reset.status_code == 200
     assert res_reset.json()["status"] == "reset"
+

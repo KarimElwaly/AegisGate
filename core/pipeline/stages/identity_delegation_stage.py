@@ -44,3 +44,4 @@ class IdentityDelegationStage:
             ],
             latency_ms=round(latency_ms, 2),
         )
+

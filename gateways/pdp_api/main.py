@@ -19,6 +19,7 @@ from gateways.pdp_api.routes import (
     evaluate_router,
     health_router,
     kill_switch_router,
+    mcp_servers_router,
     plugins_router,
     policies_router,
     simulate_router,
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(evaluate_router)
     app.include_router(policies_router)
     app.include_router(plugins_router)
+    app.include_router(mcp_servers_router)
     app.include_router(kill_switch_router)
     app.include_router(approvals_router)
     app.include_router(audit_router)

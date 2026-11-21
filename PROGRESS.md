@@ -1,14 +1,14 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 7 COMPLETED (Phases 1 through 7 Complete)
-- Overall Test Suite Status: 69 / 69 Tests Passing (100%)
-- Core Test Coverage: 85% across 2,487 statements in `core/` (DoD Target: >=85%)
-- Tier-1 P95 Latency: 0.59 ms (DoD Target: <15 ms)
+- Current Phase: Phase 8 COMPLETED (Phases 1 through 8 Complete)
+- Overall Test Suite Status: 75 / 75 Tests Passing (100%)
+- Core Test Coverage: 86% across 2,667 statements in `core/` (DoD Target: >=85%)
+- Tier-1 P95 Latency: 1.38 ms (DoD Target: <15 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (DoD Target: <2%)
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: COMPLETE (All Phase 7 DoD milestones successfully achieved)
+- Autonomous Mode: IN PROGRESS (Phase 8 Complete, moving to Phase 9)
 
 ---
 
@@ -189,4 +189,44 @@
 - **Core Test Coverage:** 85% across all 2,487 statements in `core/` (DoD target: >=85% met)
 - **Tier-1 Fast-Path Latency:** P50 = 0.38 ms, P95 = 0.59 ms, P99 = 0.69 ms (DoD target: <15.0 ms met)
 - **Standalone SDK:** Installed cleanly via `pip install -e sdks/python` and verified with `python -c "import aegisgate"`
+
+---
+
+## Phase 8: Agentic Identity, MCP Governance & Session Taint Tracking (COMPLETED)
+### Files Created / Implemented:
+- `core/models/mcp.py`: SQLAlchemy models `UpstreamMcpServerRecord` (registered upstream MCP servers) and `McpToolPinRecord` (anti-rug-pull schema and description hash pins).
+- `core/models/__init__.py`: Exported Phase 8 models.
+- `migrations/versions/0005_phase8_mcp_and_taints.py`: Alembic migration for `upstream_mcp_servers` and `mcp_tool_pins` tables.
+- `core/governance/taint_tracker.py`: `TaintTracker` managing stateful multi-agent session taints with Redis sets (`aegis:taint:{tenant}:{session_id}`) with automatic TTL expiry.
+- `core/auth/agent_identity.py`: `AgentIdentityService` for minting signed agent JWTs, parent-child token delegation, monotonic tool attenuation verification, and cryptographic chain validation.
+- `core/governance/delegation.py`: Enhanced `DelegationValidator` with `require_signed_delegation: bool`, verifying signed agent JWTs and monotonic permission attenuation across multi-agent delegation chains.
+- `core/schemas/policy.py`: Added `add_taints: list[str]` to `RuleAction`.
+- `core/policy_engine/yaml_engine.py`:
+  - Added support for `contains_any` and `contains_all` operators.
+  - Added session context resolution (`session.taints`, `session.declared_scope`).
+  - Added mutation handling for `action.add_taints`.
+- `core/pipeline/stages/policy_evaluation_stage.py`: Loaded active session taints from `TaintTracker`, provided them to policy engine evaluation context, and persisted matching rule taints back to Redis.
+- `gateways/mcp_tool_gateway/tool_gateway.py`:
+  - Anti-Rug-Pull tool pinning & drift detection (`check_anti_rug_pull`).
+  - Dynamic tool quarantine: automatically quarantines drifted tools, strips them from `tools/list`, and rejects `tools/call` with JSON-RPC error code `-32002`.
+  - Role-based tool filtering in `tools/list` according to delegation permissions.
+  - Upstream MCP server proxying and JSON-RPC tool execution.
+- `gateways/pdp_api/routes/mcp_servers.py`: Control plane REST routes:
+  - `POST /v1/mcp/servers`: Register upstream MCP servers.
+  - `GET /v1/mcp/servers`: List upstream servers.
+  - `DELETE /v1/mcp/servers/{server_id}`: Remove upstream server.
+  - `POST /v1/mcp/tools/{tool_name}/pin`: Pin baseline tool schema and description, clearing quarantine.
+  - `GET /v1/mcp/tools/quarantine`: List all quarantined tools with reasons.
+  - `GET /v1/mcp/tools/pins`: List all active tool pins.
+- `gateways/pdp_api/routes/__init__.py` and `gateways/pdp_api/main.py`: Mounted MCP routes.
+- `tests/unit/test_phase8_taints_delegation.py`: Unit tests for `TaintTracker`, `AgentIdentityService` minting/child attenuation/forgery checks, and signed delegation chain validation.
+- `tests/integration/test_phase8_mcp_governance.py`: Integration tests for MCP server registration, Anti-Rug-Pull detection & quarantine, admin re-pinning, role-based tool filtering, and toxic session taint chain blocking.
+
+### Phase 8 Test Results & Benchmarks:
+- **Full Test Suite:** 75 passed out of 75 run (100% pass rate) in 35.31s
+- **Zero Regressions:** All 69 Phase 1–7 tests pass without error
+- **Core Test Coverage:** 86% across all 2,667 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.81 ms, P95 = 1.38 ms, P99 = 1.62 ms (DoD target: <15.0 ms met)
+- **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
+
 

@@ -34,3 +34,4 @@ class PipelineStageContext:
     risk_score: float = 0.0
     short_circuit: bool = False
     stage_latencies_ms: dict[str, float] = field(default_factory=dict)
+

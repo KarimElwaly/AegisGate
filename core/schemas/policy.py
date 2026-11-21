@@ -49,6 +49,7 @@ class RuleAction(BaseModel):
     mutated_content: Any | None = None
     mutated_parameters: dict[str, Any] | None = None
     approval_config: dict[str, Any] | None = None  # e.g. required_approvals: 2
+    add_taints: list[str] = Field(default_factory=list)
 
 
 class PolicyRule(BaseModel):
