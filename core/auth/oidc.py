@@ -92,9 +92,7 @@ class OidcService:
                     except Exception as retry_err:
                         raise ValueError(f"OIDC signing key not found after refresh: {retry_err}")
             else:
-                # Unverified claims extraction for testing / simulation when no JWKS is configured
-                claims = jwt.decode(token, options={"verify_signature": False})
-                return self._attach_mapped_role(claims)
+                raise ValueError("OIDC JWKS verification is not configured")
 
             decode_kwargs: dict[str, Any] = {
                 "algorithms": ["RS256", "ES256"],

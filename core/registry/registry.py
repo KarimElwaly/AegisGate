@@ -18,6 +18,7 @@ class PluginRegistry:
 
     def __init__(self) -> None:
         self._scanners: dict[str, BaseScanner] = {}
+        self._scanner_aliases: dict[str, str] = {}
         self._resolvers: dict[str, BaseContextResolver] = {}
         self._notifiers: dict[str, BaseNotifier] = {}
 
@@ -28,7 +29,8 @@ class PluginRegistry:
         self._scanners[scanner.name] = scanner
         for prefix in ("tier1_", "tier2_", "tier3_"):
             if scanner.name.startswith(prefix):
-                self._scanners[scanner.name[len(prefix):]] = scanner
+                alias = scanner.name[len(prefix):]
+                self._scanner_aliases[alias] = scanner.name
 
         logger.info(
             "Registered scanner",
@@ -38,12 +40,17 @@ class PluginRegistry:
         )
 
     def unregister_scanner(self, name: str) -> None:
-        if name in self._scanners:
-            del self._scanners[name]
-            logger.info("Unregistered scanner", name=name)
+        canonical_name = self._scanner_aliases.get(name, name)
+        if canonical_name in self._scanners:
+            del self._scanners[canonical_name]
+            aliases_to_del = [a for a, c in self._scanner_aliases.items() if c == canonical_name or a == name]
+            for a in aliases_to_del:
+                self._scanner_aliases.pop(a, None)
+            logger.info("Unregistered scanner", name=canonical_name)
 
     def get_scanner(self, name: str) -> BaseScanner | None:
-        return self._scanners.get(name)
+        canonical_name = self._scanner_aliases.get(name, name)
+        return self._scanners.get(canonical_name)
 
     def get_all_scanners(self) -> dict[str, BaseScanner]:
         return dict(self._scanners)

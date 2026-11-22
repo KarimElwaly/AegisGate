@@ -35,6 +35,7 @@ rules:
   - id: fleet-block-excessive-delegation-depth
     name: Block Excessive Delegation Depth
     priority: 5
+    stages: ["tool_pre_call", "agent_handoff"]
     description: Enforce maximum delegation depth of 3 across collaborating agents
     condition:
       field: actor.delegation_depth

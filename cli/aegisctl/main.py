@@ -35,19 +35,29 @@ def validate_policy(policy_file: str):
         pack = PolicyPackDefinition(**data)
         click.secho(f"✓ Syntax and schema valid: {pack.id} (version {pack.version})", fg="green")
 
-        # Verify scanners exist
+        # Verify scanners exist and strictly validate their config schemas
         registry = get_plugin_registry()
-        missing = []
         for s in pack.scanners:
-            if not registry.get_scanner(s.name):
-                missing.append(s.name)
+            scanner_instance = registry.get_scanner(s.name)
+            if not scanner_instance:
+                raise ValueError(f"Scanner '{s.name}' is not registered in plugin registry")
+            if s.config and scanner_instance.config_schema:
+                try:
+                    scanner_instance.config_schema(**s.config)
+                except Exception as sc_err:
+                    raise ValueError(f"Invalid config for scanner '{s.name}': {sc_err!s}")
 
-        if missing:
-            click.secho(f"⚠ Warning: Scanners not registered in local environment: {missing}", fg="yellow")
-        else:
-            click.secho(f"✓ All {len(pack.scanners)} scanners verified in plugin registry", fg="green")
+        click.secho(f"✓ All {len(pack.scanners)} scanners verified with valid config schemas", fg="green")
 
-        click.secho(f"✓ {len(pack.rules)} rules compiled successfully", fg="green")
+        # Verify rules and stage definitions
+        valid_stages = {s.value for s in StageEnum}
+        for r in pack.rules:
+            if r.stages:
+                for st in r.stages:
+                    if st not in valid_stages:
+                        raise ValueError(f"Rule '{r.id}' has invalid stage '{st}'. Valid: {valid_stages}")
+
+        click.secho(f"✓ {len(pack.rules)} rules compiled and verified successfully", fg="green")
         sys.exit(0)
     except Exception as e:
         click.secho(f"✗ Policy validation failed: {e!s}", fg="red")
@@ -190,7 +200,15 @@ def models_status():
     for component, filename in catalog:
         path = model_dir / filename
         if path.exists():
-            status_text = click.style("LOADED", fg="green", bold=True)
+            try:
+                with open(path, "rb") as f:
+                    header = f.read(16)
+                if header.startswith(b"#") or len(header) < 4:
+                    status_text = click.style("INVALID_FILE (mock stub)", fg="red")
+                else:
+                    status_text = click.style("LOADED", fg="green", bold=True)
+            except Exception:
+                status_text = click.style("INVALID_FILE", fg="red")
         else:
             status_text = click.style("FALLBACK_MODE", fg="yellow")
         click.echo(f"{component:<30} {filename:<25} {status_text:<20}")
@@ -229,6 +247,11 @@ def models_pull(profile: str):
         else:
             click.echo(f"  - {fname} already exists")
 
+    click.secho(
+        "Notice: Production weights must be downloaded from enterprise model registry or S3 bucket.\n"
+        "AegisGate runs in audited, zero-latency heuristic fallback mode when local weights are absent.",
+        fg="yellow",
+    )
     click.secho(f"\n✓ Profile '{profile}' initialized successfully.\n", fg="green", bold=True)
 
 

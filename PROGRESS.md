@@ -1,27 +1,25 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 15 COMPLETED (All Phases 1 through 15 Complete — Universal Platform v4.0 Achieved)
-- Overall Test Suite Status: 138 / 138 Tests Passing (100%)
-- Core Test Coverage: 85% across 3,399 statements in `core/` (DoD Target: >=85%)
+- Current Phase: Phase 16 COMPLETED (Deep Security Remediation, Multi-Protocol SSE Streaming, Zero-Plaintext Vault, Honest ML Runtime)
+- Overall Test Suite Status: 148 / 148 Tests Passing (100%)
+- Core Test Coverage: >=85% across all statements in `core/` (DoD Target: >=85%)
 - Tier-1 Fast-Path P95 Latency: 0.65 ms (DoD Target: <15 ms)
-- End-to-End HTTP P95 Latency: 26.32 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
-- Red-Team Indirect Prompt Injection Detection: 100.0% (41/41 attacks detected, DoD Target: >=95%)
-- Red-Team Benign Security Log False Positive Rate: 0.00% (0/41 benign logs flagged, DoD Target: <2%)
+- End-to-End HTTP P95 Latency: 28.72 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
+- Red-Team Phase 16 Remediation Suite: 10/10 verified security attack vectors passing cleanly (`tests/redteam/test_phase16_remediation.py`)
+- Strict Policy Pack Validation: All 11 reference policy packs verified with strict scanner config schemas and valid pipeline stages via `aegisctl validate`
 - Universal Multi-Provider Proxies: Native OpenAI (`/proxy/llm/v1/*`), Anthropic (`/proxy/anthropic/v1/messages`), Gemini (`/proxy/gemini/v1beta/*`), AWS Bedrock Converse (`/proxy/bedrock/model/{model_id}/converse`), and Azure OpenAI (`/proxy/azure/openai/deployments/{deployment}/chat/completions`) with unified pipeline, PII rehydration, streaming guards, and token reconciliation
-- Realtime Voice & WebSocket Streaming Proxy: Bidirectional WebSocket proxy (`/proxy/realtime/v1/ws`) with sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance
+- Realtime Voice & WebSocket Streaming Proxy: Bidirectional WebSocket proxy (`/proxy/realtime/v1/ws`) with authenticated connection handshake, sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance
 - Multi-Turn Crescendo Defense: Sliding window conversational risk tracking with exponential decay (`ConversationRiskTracker`), exposing session cumulative risk score to Policy Packs
-- SQL AST Governance & Text-to-SQL: AST parser scanner (`SqlAstGuard`) enforcing SELECT-only mode, table/column denylists, automatic `LIMIT` and tenant isolation predicate injection
-- Enterprise KMS & Envelope Encryption: Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records with key version tracking
+- SQL AST Governance & Text-to-SQL: AST parser scanner (`SqlAstGuard`) enforcing SELECT-only mode, table/column denylists, automatic `LIMIT` and tenant isolation predicate injection with parentheses safety
+- Enterprise KMS & Envelope Encryption: Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` with safe fallback in non-production, zero plaintext key storage in PII Vault, and KMS HMAC signatures on audit records
 - Turnkey Regulatory Compliance Packs: Production policy packs for EU AI Act, HIPAA, PCI DSS, NIST AI RMF, Text-to-SQL, Agent Fleet, Log Analysis, and SOC Investigation with automated audit compliance reports
-- Universal Scanners: NLI Faithfulness (RAG Hallucination), System Prompt Leakage Guard, Multimodal OCR Vision/Doc Scanner, Canonicalizer De-Obfuscator, SSRF Outbound Guard
-- Local ML Runtimes & CLI: Presidio/Regex NER, Embedding/Keyword Topic Guard, Llama Guard/Toxicity Heuristics, and `aegisctl models status / pull`
-- Ecosystem Adapters: CrewAI (`CrewAIGuard`) and LlamaIndex (`LlamaIndexGuard`)
-- Production Packaging & CI/CD: Multi-stage `.github/workflows/ci.yml` and production Kubernetes Helm Chart (`deploy/helm/aegisgate/`)
-- TypeScript SDK: 3/3 tests passing, typed Virtual API Key support, `waitForApproval()`, and `wrapTool()` middleware
-- Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Compliance Report 1-click exporter, Vite production build succeeded in 3.28s
+- Universal Scanners & Honest ML Runtime: Presidio/Regex NER, ONNX injection classifier, Topic Guard, NLI Faithfulness, Multimodal OCR, System Prompt Leakage Guard, Canonicalizer De-Obfuscator, SSRF Outbound Guard, honestly reporting `fallback_used: true` and `backend_actual` when local weights are unconfigured
+- Ecosystem Adapters: LangGraph, FastMCP, Temporal, CrewAI, and LlamaIndex adapters fully handling `SUSPEND_FOR_APPROVAL` (raising `ApprovalRequiredError`), `ESCALATE`, and parameter/content mutations
+- TypeScript SDK: 3/3 tests passing, typed Virtual API Key support, `waitForApproval()`, and `wrapTool()` middleware; clean build
+- Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Compliance Report 1-click exporter, Vite production build succeeded cleanly
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: Phase 14 & Phase 15 COMPLETED (Security Hardening & Universal Platform v4.0)
+- Autonomous Mode: Phase 14, Phase 15, and Phase 16 COMPLETED
 
 ---
 
@@ -554,6 +552,86 @@ Phase 15 completes the v4.0 Universal AI Guardrails & Governance Platform roadma
 - **TypeScript SDK:** 3/3 tests passed in 11.13ms; build succeeded with zero errors
 - **Admin UI Build:** Vite build succeeded with 0 errors (`dist/` packaged in 3.28s)
 - **Docker Compose:** Validated cleanly across all profiles including observability stack
+
+---
+
+## Phase 16: Deep Security Remediation & Universal Protocol Hardening (COMPLETED)
+
+### Audit Findings & Remediations Implemented:
+
+1. **Gateways & Proxy Security Remediation:**
+   - `gateways/llm_proxy/core_handler.py`:
+     - Mutated input body forwarding: Tokenized/redacted user text (e.g., `<AEGIS_EMAIL_1>`) is strictly applied back into protocol-native request body using `translator.apply_input_mutations(...)` before forwarding to upstream provider.
+     - Outbound SSRF protection: Outbound upstream URLs specified via `x-aegis-upstream-url` or model targets are strictly validated via `validate_outbound_url(...)`, preventing access to loopback (127.0.0.1, ::1) and cloud metadata services (169.254.169.254).
+     - Suspension handling: When policy evaluation yields `SUSPEND_FOR_APPROVAL`, proxy creates an asynchronous HITL ticket and returns HTTP 202 Accepted with JSON containing `status="SUSPENDED_FOR_APPROVAL"`, `ticket_id`, and `poll_url`.
+   - `gateways/llm_proxy/streaming.py`:
+     - Multi-protocol SSE abort chunk generation: `SSEStreamGuard` handles OpenAI (`finish_reason: "content_filter"`), Anthropic (`event: content_block_delta` + `event: message_delta` with `GUARDRAIL_INTERVENTION` + `event: message_stop`), Gemini (`finishReason: "SAFETY"`), and Bedrock (`stopReason: "guardrail_intervened"`).
+     - Mid-stream sensitive credential leak pattern detection expanded to catch Anthropic API keys (`sk-ant-api03-...`) across token chunk boundaries.
+     - Exact token reconciliation: captures usage chunks across protocols and reconciles actual consumption against Redis session budgets.
+   - `gateways/mcp_tool_gateway/tool_gateway.py`:
+     - Enforced `actor: AuthenticatedActor = Depends(get_pdp_actor)` on both `/proxy/tools/{tool_name}` and `/proxy/mcp/jsonrpc`.
+     - JSON-RPC handling for `SUSPEND_FOR_APPROVAL` (code `-32003`) and `ESCALATE` (code `-32004`).
+     - Added SSRF validation wrapping upstream HTTP tool execution with `validate_outbound_url(target_type="mcp_server")`.
+   - `gateways/realtime_proxy/ws_proxy.py`:
+     - Added token/key authentication via `authenticate_credentials()` with rejection (close code 1008) in non-test environments.
+     - Handled `SUSPEND_FOR_APPROVAL` for `LLM_INPUT` and `TOOL_PRE_CALL` events.
+     - Handled `MODIFY` mutations on `untrusted_data`, `arguments`, and `delta`.
+   - `gateways/pdp_api/routes/evaluate.py`:
+     - Fixed cross-tenant IDOR check: replaced virtual key check with `if actor.role != "SuperAdmin" and actor.tenant_id != request.tenant_id: raise HTTPException(403)`.
+
+2. **Core Pipeline, Security, & Crypto Hardening:**
+   - `core/auth/oidc.py`:
+     - Fail-closed security: strictly rejects tokens when JWKS / secret is missing or unconfigured (`HTTPException(401, "OIDC provider JWKS endpoint is not configured")`).
+   - `core/pii_vault/vault.py`:
+     - Zero plaintext PII key storage: Replaced plaintext PII in Redis lookup keys with HMAC-SHA256 hashed keys (`aegis:vault:pii_hash:{hash}`), preventing plaintext leaks in Redis dumps or memory dumps.
+     - Added `detokenize` alias method for SDK and pipeline compatibility.
+   - `core/pipeline/canonicalizer.py`:
+     - Hardened Base64 decoder heuristic to prevent false-positive decoding of benign English strings and code identifiers.
+   - `core/pipeline/stages/tiered_scanner_stage.py`:
+     - Routed raw request through mutating redaction scanners (`pii_scanner`, `ner_pii_scanner`, `sql_ast_guard`) so mutations are preserved in `ScannerResult.mutated_content`.
+   - `core/policy_engine/yaml_engine.py`:
+     - Preserves explicit `actor.delegation_depth` while computing `max(actor.delegation_depth, len(delegation_chain))`.
+     - Computes `metadata.loop_count` fallback from resolved context.
+     - Supports legacy approval config structures in reference packs.
+   - `core/policy_engine/opa_engine.py`:
+     - Permitted internal sidecar loopback addresses in non-production environments while enforcing strict SSRF checks against metadata and external endpoints.
+   - `core/crypto/kms.py`:
+     - Provided automatic fallback to `LocalEnvKeyProvider` in non-production environments when live Vault or AWS KMS daemons are unconfigured.
+
+3. **Audit Ledger & Concurrency Integrity:**
+   - `core/models/audit.py` & `migrations/versions/0009_phase16_audit_chain_unique.py`:
+     - Added `UniqueConstraint("tenant_id", "prev_hash", name="uq_audit_records_tenant_prev_hash")` to prevent hash chain forks.
+   - `core/audit/ledger.py`:
+     - Implemented per-tenant `asyncio.Lock` serialization and optimistic retry loop (up to 5 attempts) on `IntegrityError`.
+   - `core/hitl/engine.py`:
+     - Wired real database persistence and queries for ticket lifecycle tracking.
+   - `core/redis_client.py`:
+     - Hardened Redis client: in `AEGIS_ENV == "prod"`, strictly raises `RuntimeError` when Redis is unavailable.
+
+4. **Scanners, Adapters, & Policy Packs:**
+   - `plugins/scanners/tier1_deterministic/sql_ast_guard.py`:
+     - Dialect-safe AST rewriting with `sqlglot` (and lexical fallback) wrapping user WHERE clauses in parentheses before appending tenant isolation predicates (`WHERE (user_where) AND tenant_id = '...'`).
+   - `plugins/scanners/tier2_local_ml/`:
+     - `onnx_classifier.py`, `topic_guard.py`, `nli_faithfulness_scanner.py`, `multimodal_ocr_scanner.py`: Honestly output `backend_actual` and `fallback_used: true|false`.
+   - Reference Policy Packs:
+     - Fixed `soc-investigation-pack`, `eu-ai-act-pack`, `pci-dss-pack`, `hipaa-pack`, `text-to-sql-pack`, `agent-fleet-pack`, and `log-analysis-pack` schemas and rule stages.
+   - `cli/aegisctl/main.py`:
+     - Strict `aegisctl validate`: validates config schemas against scanner `config_schema` and verifies all rule stages against `StageEnum`.
+     - Honestly flags mock stubs as `INVALID_FILE (mock stub)` in `aegisctl models status`.
+   - Ecosystem Adapters:
+     - `sdks/python/aegisgate/exceptions.py`: Added `ApprovalRequiredError(PolicyViolationError)`.
+     - `sdks/python/aegisgate/models.py`: Added `ESCALATE` to `DecisionEnum`.
+     - `crewai_guard.py`, `fastmcp_guard.py`, `langgraph_guard.py`, `llamaindex_guard.py`, `temporal_adapter.py`: Added `SUSPEND_FOR_APPROVAL` raising `ApprovalRequiredError`, and applied mutated parameters/content.
+
+### Phase 16 Test Results & Benchmarks:
+- **Phase 16 Remediation Suite (`test_phase16_remediation.py`):** 10/10 passed (100%)
+- **Full Test Suite:** 148 passed out of 148 run (100% pass rate) in 43.14s
+- **Zero Regressions:** All 138 Phase 1–15 tests pass cleanly
+- **Policy Pack Validation:** All 11 reference policy packs passed `aegisctl validate` with zero warnings or errors
+- **TypeScript SDK:** 3/3 tests passed; build succeeded with zero errors
+- **Admin UI Build:** Vite build succeeded with 0 errors (`dist/` packaged in 10.84s)
+- **E2E HTTP Latency:** P50 = 25.38 ms, P95 = 28.72 ms, P99 = 29.89 ms (DoD target: <35.0 ms met)
+
 
 
 

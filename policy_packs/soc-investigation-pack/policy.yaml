@@ -11,7 +11,7 @@ resolvers:
     timeout_ms: 300
     cache_ttl_seconds: 60
     config:
-      url: "http://127.0.0.1:9099/v1/assets/{action.parameters.asset_id}"
+      url_template: "https://cmdb.internal.example.com/v1/assets/{action.parameters.asset_id}"
       method: "GET"
       headers:
         X-Aegis-Tenant: "{tenant_id}"

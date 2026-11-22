@@ -5,6 +5,7 @@ import httpx
 from fastapi import Request, Response
 from fastapi.responses import StreamingResponse
 
+from core.auth.dependencies import AuthenticatedActor
 from core.config import get_settings
 from core.governance.budgets import get_budget_manager
 from core.governance.taint_tracker import get_taint_tracker
@@ -13,6 +14,7 @@ from core.pii_vault.vault import get_pii_vault
 from core.pipeline.orchestrator import PipelineOrchestrator
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 from core.telemetry import record_proxy_request
 from gateways.llm_proxy.streaming import SSEStreamGuard
 from gateways.llm_proxy.translators.base import BaseProtocolTranslator
@@ -35,8 +37,27 @@ async def execute_proxy_request(
     x_aegis_upstream_url: str | None = None,
     path_params: dict[str, str] | None = None,
     force_stream: bool = False,
+    actor: AuthenticatedActor | None = None,
 ) -> Response:
     """Universal execution handler for any LLM protocol (OpenAI, Anthropic, Gemini)."""
+    settings = get_settings()
+
+    # 0. AUTHENTICATION & IDENTITY BINDING
+    if actor is not None:
+        if settings.AEGIS_ENV != "test" and actor.auth_type == "anonymous":
+            return Response(
+                status_code=401,
+                media_type="application/json",
+                content=json.dumps({"error": {"message": "Authentication required. Provide valid Virtual API Key or Bearer token.", "type": "authentication_error"}}),
+            )
+        if actor.auth_type != "anonymous":
+            x_aegis_tenant_id = actor.tenant_id
+            x_aegis_workspace_id = actor.workspace_id
+            x_aegis_actor_id = actor.actor_id
+            x_aegis_actor_role = actor.role
+            if actor.default_policy_pack_id and x_aegis_policy_pack == "base-enterprise":
+                x_aegis_policy_pack = actor.default_policy_pack_id
+
     trusted_instr, untrusted_data, attachments, model, stream = translator.extract_canonical_input(
         body, path_params
     )
@@ -88,7 +109,47 @@ async def execute_proxy_request(
             headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
         )
 
-    settings = get_settings()
+    # Enforce SUSPEND_FOR_APPROVAL
+    if verdict_input.decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
+        record_proxy_request(translator.protocol_name, "suspended")
+        approval_meta = verdict_input.approval_ticket.model_dump() if verdict_input.approval_ticket else {}
+        return Response(
+            status_code=202,
+            media_type="application/json",
+            content=json.dumps({
+                "status": "SUSPEND_FOR_APPROVAL",
+                "message": "LLM request suspended pending human approval",
+                "verdict_id": verdict_input.verdict_id,
+                "approval_ticket": approval_meta,
+            }),
+            headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
+        )
+
+    # Enforce ESCALATE
+    if verdict_input.decision == DecisionEnum.ESCALATE:
+        record_proxy_request(translator.protocol_name, "escalated")
+        return Response(
+            status_code=403,
+            media_type="application/json",
+            content=json.dumps({
+                "error": {
+                    "message": "LLM request escalated and blocked by AegisGate policy",
+                    "type": "aegisgate_escalation",
+                    "verdict_id": verdict_input.verdict_id,
+                }
+            }),
+            headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
+        )
+
+    # Enforce MODIFY (Redaction enforcement)
+    if verdict_input.decision == DecisionEnum.MODIFY and verdict_input.mutated_content:
+        mutated_c = verdict_input.mutated_content
+        mutated_u = mutated_c.get("untrusted_data") or untrusted_data
+        mutated_t = mutated_c.get("trusted_instructions") or trusted_instr
+        body = translator.apply_input_mutations(body, str(mutated_u), str(mutated_t))
+        trusted_instr = str(mutated_t)
+        untrusted_data = str(mutated_u)
+
     is_test_or_mock = settings.AEGIS_ENV == "test" and not x_aegis_upstream_url
 
     if is_test_or_mock:
@@ -102,6 +163,7 @@ async def execute_proxy_request(
                 actor_role=x_aegis_actor_role,
                 model=model,
                 policy_pack_id=x_aegis_policy_pack,
+                translator=translator,
             )
 
             mock_chunks = translator.build_mock_stream_chunks(
@@ -137,7 +199,11 @@ async def execute_proxy_request(
                 stage=StageEnum.LLM_OUTPUT,
                 actor=ActorModel(id=x_aegis_actor_id, role=x_aegis_actor_role),
                 action=ActionModel(name="chat_completion", target=model),
-                content=ContentModel(output_payload=assistant_content),
+                content=ContentModel(
+                    trusted_instructions=trusted_instr,
+                    untrusted_data=untrusted_data,
+                    output_payload=assistant_content,
+                ),
             )
             verdict_output = await orchestrator.evaluate(eval_req_output)
 
@@ -189,13 +255,37 @@ async def execute_proxy_request(
             )
 
     # Real upstream forwarding with failover
+    default_path = "/chat/completions"
+    if translator.protocol_name == "anthropic":
+        default_path = "/v1/messages"
+    elif translator.protocol_name == "gemini":
+        default_path = f"/v1beta/models/{model}:generateContent"
+    elif translator.protocol_name == "bedrock":
+        default_path = f"/model/{model}/converse"
+    elif translator.protocol_name == "azure_openai":
+        default_path = f"/openai/deployments/{model}/chat/completions"
+
     candidate_urls: list[str] = []
     if is_sovereign:
-        candidate_urls = [f"{settings.LLM_JUDGE_BASE_URL.rstrip('/')}/chat/completions"]
+        candidate_urls = [f"{settings.LLM_JUDGE_BASE_URL.rstrip('/')}{default_path}"]
     elif x_aegis_upstream_url:
         candidate_urls = [u.strip() for u in x_aegis_upstream_url.split(",") if u.strip()]
     else:
-        candidate_urls = [f"{settings.LLM_JUDGE_BASE_URL.rstrip('/')}/chat/completions"]
+        candidate_urls = [f"{settings.LLM_JUDGE_BASE_URL.rstrip('/')}{default_path}"]
+
+    validated_urls: list[str] = []
+    for cand_url in candidate_urls:
+        try:
+            await validate_outbound_url(cand_url, target_type="llm_proxy")
+            validated_urls.append(cand_url)
+        except SSRFProtectionError as ssrf_err:
+            logger.warning("llm_proxy_ssrf_blocked", url=cand_url, error=str(ssrf_err))
+            return Response(
+                status_code=400,
+                media_type="application/json",
+                content=json.dumps({"error": {"message": f"Invalid upstream URL: {ssrf_err!s}", "type": "ssrf_violation"}}),
+            )
+    candidate_urls = validated_urls
 
     forward_headers = {"Content-Type": "application/json"}
     if authorization:
@@ -240,6 +330,7 @@ async def execute_proxy_request(
                 actor_role=x_aegis_actor_role,
                 model=model,
                 policy_pack_id=x_aegis_policy_pack,
+                translator=translator,
             )
 
             async def wrapped_stream():
@@ -289,7 +380,11 @@ async def execute_proxy_request(
                 stage=StageEnum.LLM_OUTPUT,
                 actor=ActorModel(id=x_aegis_actor_id, role=x_aegis_actor_role),
                 action=ActionModel(name="chat_completion", target=model),
-                content=ContentModel(output_payload=assistant_content),
+                content=ContentModel(
+                    trusted_instructions=trusted_instr,
+                    untrusted_data=untrusted_data,
+                    output_payload=assistant_content,
+                ),
             )
 
             verdict_output = await orchestrator.evaluate(eval_req_output)
@@ -335,16 +430,24 @@ async def execute_proxy_request(
             )
     except httpx.RequestError as exc:
         await client.aclose()
-        logger.warning("Upstream LLM unreachable, returning local mock response", error=str(exc))
-        mock_resp = translator.build_mock_completion(
-            model=model,
-            content="AegisGate Governed Response: Fallback mock completion.",
-            usage={"prompt_tokens": 15, "completion_tokens": 12, "total_tokens": 27},
-        )
+        if settings.AEGIS_ENV == "test":
+            logger.warning("Upstream LLM unreachable, returning local mock response", error=str(exc))
+            mock_resp = translator.build_mock_completion(
+                model=model,
+                content="AegisGate Governed Response: Fallback mock completion.",
+                usage={"prompt_tokens": 15, "completion_tokens": 12, "total_tokens": 27},
+            )
+            return Response(
+                content=json.dumps(mock_resp),
+                status_code=200,
+                media_type="application/json",
+                headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
+            )
+        record_proxy_request(translator.protocol_name, "upstream_error")
+        logger.error("Upstream LLM connection error", error=str(exc))
         return Response(
-            content=json.dumps(mock_resp),
-            status_code=200,
+            content=json.dumps({"error": {"message": f"Upstream LLM service unavailable: {exc!s}", "type": "upstream_error"}}),
+            status_code=502,
             media_type="application/json",
-            headers={"X-Aegis-Verdict-Id": verdict_input.verdict_id},
         )
 

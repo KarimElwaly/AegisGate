@@ -52,6 +52,7 @@ rules:
   - id: log-block-indirect-prompt-injection
     name: Block Indirect Prompt Injection in Logs
     priority: 8
+    stages: ["llm_input", "tool_post_call"]
     description: Deny requests where prompt injection is embedded inside raw log payloads
     condition:
       any:
@@ -73,9 +74,19 @@ rules:
     stages: ["llm_input"]
     description: Raw enterprise logs must never be routed to unapproved public frontier endpoints
     condition:
-      field: metadata.model
-      operator: not_in
-      value: ["local-llama-3", "mistral-7b-local", "sovereign-qwen", "ollama/llama3"]
+      any:
+        - all:
+            - field: metadata.model
+              operator: exists
+            - field: metadata.model
+              operator: not_in
+              value: ["local-llama-3", "mistral-7b-local", "sovereign-qwen", "ollama/llama3"]
+        - all:
+            - field: action.target
+              operator: exists
+            - field: action.target
+              operator: not_in
+              value: ["local-llama-3", "mistral-7b-local", "sovereign-qwen", "ollama/llama3"]
     action:
       decision: DENY
       severity: critical

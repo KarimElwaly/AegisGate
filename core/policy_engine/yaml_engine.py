@@ -216,16 +216,26 @@ class YamlPolicyEngine(PolicyEngineInterface):
         if "taints" not in session_info:
             session_info["taints"] = list(resolved_context.get("taints", []))
 
+        actor_data = request.actor.model_dump()
+        actor_data["delegation_depth"] = max(
+            actor_data.get("delegation_depth") or 0,
+            len(actor_data.get("delegation_chain") or []),
+        )
+
+        metadata_dict = dict(request.metadata or {})
+        if "loop_count" not in metadata_dict:
+            metadata_dict["loop_count"] = resolved_context.get("loop_count", 0)
+
         context_bundle = {
             "stage": current_stage,
             "tenant_id": request.tenant_id,
             "workspace_id": request.workspace_id,
             "session_id": request.session_id,
             "environment": request.environment,
-            "actor": request.actor.model_dump(),
+            "actor": actor_data,
             "action": request.action.model_dump(),
             "content": request.content.model_dump(),
-            "metadata": request.metadata,
+            "metadata": metadata_dict,
             "resolved_context": resolved_context,
             "scanner_findings": findings_map,
             "findings": findings_map,
@@ -288,6 +298,12 @@ class YamlPolicyEngine(PolicyEngineInterface):
                     rule_mutations["mutated_parameters"] = act.mutated_parameters
                 if act.approval_config:
                     rule_mutations["approval_config"] = act.approval_config
+                elif hasattr(act, "required_approvals") and getattr(act, "required_approvals", None):
+                    rule_mutations["approval_config"] = {
+                        "required_approvals": getattr(act, "required_approvals"),
+                        "required_approver_roles": getattr(act, "required_approver_roles", ["Approver", "TenantAdmin"]),
+                        "timeout_seconds": getattr(act, "timeout_seconds", 3600),
+                    }
                 if act.add_taints:
                     existing_taints = rule_mutations.setdefault("add_taints", [])
                     for t in act.add_taints:

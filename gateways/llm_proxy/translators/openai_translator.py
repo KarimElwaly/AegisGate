@@ -133,3 +133,56 @@ class OpenAIProtocolTranslator(BaseProtocolTranslator):
             }
         }
 
+    def apply_input_mutations(
+        self, body: dict[str, Any], mutated_untrusted: str, mutated_trusted: str = ""
+    ) -> dict[str, Any]:
+        new_body = dict(body)
+        messages = [dict(m) for m in new_body.get("messages", [])]
+        # Update user messages and system messages
+        user_updated = False
+        for i in range(len(messages) - 1, -1, -1):
+            role = messages[i].get("role", "user")
+            if role in ("system", "developer") and mutated_trusted:
+                messages[i]["content"] = mutated_trusted
+            elif role == "user" and not user_updated and mutated_untrusted:
+                messages[i]["content"] = mutated_untrusted
+                user_updated = True
+        new_body["messages"] = messages
+        return new_body
+
+    def extract_stream_delta(self, chunk_obj: dict[str, Any]) -> str | None:
+        choices = chunk_obj.get("choices", [])
+        if choices:
+            delta = choices[0].get("delta", {})
+            return delta.get("content")
+        return None
+
+    def replace_stream_delta(self, chunk_obj: dict[str, Any], new_text: str) -> dict[str, Any]:
+        choices = chunk_obj.get("choices", [])
+        if choices:
+            delta = choices[0].get("delta", {})
+            delta["content"] = new_text
+        return chunk_obj
+
+    def extract_stream_usage(self, chunk_obj: dict[str, Any]) -> dict[str, int] | None:
+        usage = chunk_obj.get("usage")
+        if usage and isinstance(usage, dict):
+            return {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+        return None
+
+    def build_stream_abort_chunk(self, reason: str) -> dict[str, Any]:
+        return {
+            "choices": [
+                {
+                    "delta": {
+                        "content": f"\n[STREAM ABORTED BY AEGISGATE: {reason}]"
+                    },
+                    "finish_reason": "content_filter",
+                }
+            ]
+        }
+

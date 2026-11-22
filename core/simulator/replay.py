@@ -58,7 +58,7 @@ class PolicyReplaySimulator:
         # 1. Parse or fetch candidate policy pack
         candidate_pack: PolicyPackDefinition | None = None
         if request.candidate_pack_yaml:
-            candidate_pack = self.yaml_engine.load_pack_from_yaml(request.candidate_pack_yaml)
+            candidate_pack = self.yaml_engine.load_from_yaml_string(request.candidate_pack_yaml)
         elif request.candidate_pack_id:
             # Look up registered pack from engine
             candidate_pack = self.yaml_engine.get_registered_pack(request.candidate_pack_id)

@@ -56,3 +56,34 @@ class BaseProtocolTranslator(ABC):
         """Build protocol-native error payload for 403 policy violation."""
         pass
 
+    @abstractmethod
+    def apply_input_mutations(
+        self, body: dict[str, Any], mutated_untrusted: str, mutated_trusted: str = ""
+    ) -> dict[str, Any]:
+        """Apply redacted/tokenized input text back into protocol-specific request body."""
+        pass
+
+    @abstractmethod
+    def extract_stream_delta(self, chunk_obj: dict[str, Any]) -> str | None:
+        """Extract incremental text delta from a streaming chunk."""
+        pass
+
+    @abstractmethod
+    def replace_stream_delta(self, chunk_obj: dict[str, Any], new_text: str) -> dict[str, Any]:
+        """Replace text delta inside a streaming chunk."""
+        pass
+
+    @abstractmethod
+    def extract_stream_usage(self, chunk_obj: dict[str, Any]) -> dict[str, int] | None:
+        """Extract usage metrics if emitted in stream."""
+        pass
+
+    @abstractmethod
+    def build_stream_abort_chunk(self, reason: str) -> dict[str, Any]:
+        """Build a protocol-native chunk indicating stream abort due to policy violation."""
+        pass
+
+    def is_stream_done(self, payload_str: str, chunk_obj: dict[str, Any] | None = None) -> bool:
+        """Check if raw SSE payload string signifies stream completion."""
+        return payload_str.strip() == "[DONE]"
+

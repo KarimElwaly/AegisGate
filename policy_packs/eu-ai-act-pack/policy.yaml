@@ -68,8 +68,9 @@ rules:
       severity: high
       reason: "EU AI Act Article 14: High-impact decision requires human oversight (HITL)"
       compliance_tags: ["EU-AI-ACT-ART-14", "HITL-MANDATORY"]
-      required_approvals: 2
-      required_approver_roles: ["compliance_officer", "legal_lead"]
+      approval_config:
+        required_approvals: 2
+        required_approver_roles: ["compliance_officer", "legal_lead"]
 
   # Article 12: Transparency & Groundedness
   - id: eu-ai-act-art12-hallucination-block

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, Request, Response
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from gateways.llm_proxy.core_handler import execute_proxy_request
 from gateways.llm_proxy.translators.bedrock_translator import BedrockProtocolTranslator
@@ -21,6 +22,7 @@ async def bedrock_converse(
     x_aegis_actor_id: str = Header(default="bedrock_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """AWS Bedrock Converse API Reverse Proxy (/proxy/bedrock/model/{modelId}/converse)."""
     body = await request.json()
@@ -39,6 +41,7 @@ async def bedrock_converse(
         x_aegis_upstream_url=x_aegis_upstream_url,
         path_params={"model_id": model_id, "stream": "false"},
         force_stream=False,
+        actor=actor,
     )
 
 
@@ -55,6 +58,7 @@ async def bedrock_converse_stream(
     x_aegis_actor_id: str = Header(default="bedrock_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """AWS Bedrock Converse Stream Reverse Proxy (/proxy/bedrock/model/{modelId}/converse-stream)."""
     body = await request.json()
@@ -73,5 +77,6 @@ async def bedrock_converse_stream(
         x_aegis_upstream_url=x_aegis_upstream_url,
         path_params={"model_id": model_id, "stream": "true"},
         force_stream=True,
+        actor=actor,
     )
 

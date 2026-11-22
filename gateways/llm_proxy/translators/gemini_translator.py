@@ -170,3 +170,64 @@ class GeminiProtocolTranslator(BaseProtocolTranslator):
             }
         }
 
+    def apply_input_mutations(
+        self, body: dict[str, Any], mutated_untrusted: str, mutated_trusted: str = ""
+    ) -> dict[str, Any]:
+        new_body = dict(body)
+        if mutated_trusted:
+            new_body["systemInstruction"] = {"parts": [{"text": mutated_trusted}]}
+        contents = [dict(c) for c in new_body.get("contents", [])]
+        for i in range(len(contents) - 1, -1, -1):
+            if contents[i].get("role") in ("user", None) and mutated_untrusted:
+                parts = contents[i].get("parts", [])
+                for p in parts:
+                    if isinstance(p, dict) and "text" in p:
+                        p["text"] = mutated_untrusted
+                        break
+                break
+        new_body["contents"] = contents
+        return new_body
+
+    def extract_stream_delta(self, chunk_obj: dict[str, Any]) -> str | None:
+        candidates = chunk_obj.get("candidates", [])
+        if candidates:
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            for p in parts:
+                if isinstance(p, dict) and "text" in p:
+                    return p.get("text")
+        return None
+
+    def replace_stream_delta(self, chunk_obj: dict[str, Any], new_text: str) -> dict[str, Any]:
+        candidates = chunk_obj.get("candidates", [])
+        if candidates:
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            for p in parts:
+                if isinstance(p, dict) and "text" in p:
+                    p["text"] = new_text
+                    break
+        return chunk_obj
+
+    def extract_stream_usage(self, chunk_obj: dict[str, Any]) -> dict[str, int] | None:
+        usage = chunk_obj.get("usageMetadata")
+        if usage and isinstance(usage, dict):
+            prompt = usage.get("promptTokenCount", 0)
+            comp = usage.get("candidatesTokenCount", 0)
+            total = usage.get("totalTokenCount", prompt + comp)
+            return {"prompt_tokens": prompt, "completion_tokens": comp, "total_tokens": total}
+        return None
+
+    def build_stream_abort_chunk(self, reason: str) -> dict[str, Any]:
+        return {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": f"\n[STREAM ABORTED BY AEGISGATE: {reason}]"}],
+                        "role": "model",
+                    },
+                    "finishReason": "SAFETY",
+                }
+            ]
+        }
+

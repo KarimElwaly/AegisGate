@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from gateways.llm_proxy.core_handler import execute_proxy_request
 from gateways.llm_proxy.translators.azure_openai_translator import AzureOpenAIProtocolTranslator
@@ -23,6 +24,7 @@ async def azure_openai_chat_completions(
     x_aegis_actor_id: str = Header(default="azure_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """Azure OpenAI Chat Completions API Reverse Proxy (/proxy/azure/openai/deployments/{deployment}/chat/completions)."""
     body = await request.json()
@@ -41,5 +43,6 @@ async def azure_openai_chat_completions(
         x_aegis_actor_role=x_aegis_actor_role,
         x_aegis_upstream_url=x_aegis_upstream_url,
         path_params={"deployment": deployment, "api_version": api_version or ""},
+        actor=actor,
     )
 

@@ -2,8 +2,8 @@ from collections.abc import Callable
 from typing import Any
 
 from aegisgate.client import AegisClient
-from aegisgate.exceptions import PolicyViolationError
-from aegisgate.models import ActionModel, ActorModel, EvaluationRequest, StageEnum
+from aegisgate.exceptions import ApprovalRequiredError, PolicyViolationError
+from aegisgate.models import ActionModel, ActorModel, DecisionEnum, EvaluationRequest, StageEnum
 
 
 class AegisTemporalActivityGuard:
@@ -33,7 +33,10 @@ class AegisTemporalActivityGuard:
                     action=ActionModel(name=activity_name, parameters=kwargs),
                 )
                 verdict = await self.client.evaluate(req)
-                if verdict.decision == "DENY":
+                if verdict.decision in ("SUSPEND_FOR_APPROVAL", DecisionEnum.SUSPEND_FOR_APPROVAL):
+                    ticket_id = verdict.approval_ticket.ticket_id if verdict.approval_ticket else None
+                    raise ApprovalRequiredError(f"AegisGate Activity '{activity_name}' suspended: Human approval required", ticket_id=ticket_id, verdict=verdict)
+                if verdict.decision in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
                     reason = (
                         verdict.triggered_rules[0].reason
                         if verdict.triggered_rules
@@ -43,7 +46,8 @@ class AegisTemporalActivityGuard:
                         f"AegisGate Activity '{activity_name}' Denied: {reason}", verdict
                     )
 
-                result = await func(*args, **kwargs) if asyncio_iscoroutinefunction(func) else func(*args, **kwargs)
+                effective_kwargs = verdict.mutated_parameters if verdict.mutated_parameters else kwargs
+                result = await func(*args, **effective_kwargs) if asyncio_iscoroutinefunction(func) else func(*args, **effective_kwargs)
                 return result
 
             return wrapper

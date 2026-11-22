@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from gateways.llm_proxy.core_handler import execute_proxy_request
 from gateways.llm_proxy.translators.anthropic_translator import AnthropicProtocolTranslator
@@ -23,6 +24,7 @@ async def anthropic_messages(
     x_aegis_actor_id: str = Header(default="anthropic_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """Anthropic Messages API Reverse Proxy (/proxy/anthropic/v1/messages).
     Enforces llm_input guardrails, sovereignty routing, token budgets, and output scanning/SSE streaming.
@@ -42,5 +44,6 @@ async def anthropic_messages(
         x_aegis_actor_id=x_aegis_actor_id,
         x_aegis_actor_role=x_aegis_actor_role,
         x_aegis_upstream_url=x_aegis_upstream_url,
+        actor=actor,
     )
 

@@ -101,6 +101,9 @@ class MultimodalOcrScanner(BaseScanner):
 
         full_extracted = " ".join(extracted_texts)
 
+        backend_actual = "payload_text_extractor"
+        fallback_used = True
+
         # 1. Scan for indirect prompt injections
         if cfg.scan_injections:
             for pat in INJECTION_PATTERNS:
@@ -111,7 +114,12 @@ class MultimodalOcrScanner(BaseScanner):
                         tier=self.tier,
                         status=cfg.action_on_violation,
                         score=0.95,
-                        details={"violation": "indirect_prompt_injection", "matched": hit.group(0)},
+                        details={
+                            "backend_actual": backend_actual,
+                            "fallback_used": fallback_used,
+                            "violation": "indirect_prompt_injection",
+                            "matched": hit.group(0),
+                        },
                         message=f"Multimodal OCR Scanner: Indirect prompt injection detected inside attachment: '{hit.group(0)}'",
                     )
 
@@ -125,9 +133,22 @@ class MultimodalOcrScanner(BaseScanner):
                         tier=self.tier,
                         status=cfg.action_on_violation,
                         score=0.95,
-                        details={"violation": "credential_leak", "matched": hit.group(0)[:8] + "..."},
+                        details={
+                            "backend_actual": backend_actual,
+                            "fallback_used": fallback_used,
+                            "violation": "credential_leak",
+                            "matched": hit.group(0)[:8] + "...",
+                        },
                         message="Multimodal OCR Scanner: Sensitive credential / secret detected inside attachment image",
                     )
 
-        return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
+        return ScannerResult(
+            scanner_name=self.name,
+            tier=self.tier,
+            status="pass",
+            details={
+                "backend_actual": backend_actual,
+                "fallback_used": fallback_used,
+            },
+        )
 

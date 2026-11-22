@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.crypto.kms import get_key_provider
@@ -21,6 +22,13 @@ logger = get_logger("core.audit.ledger")
 GENESIS_HASH = "0" * 64
 
 _last_timestamp: float = 0.0
+_tenant_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_tenant_lock(tenant_id: str) -> asyncio.Lock:
+    if tenant_id not in _tenant_locks:
+        _tenant_locks[tenant_id] = asyncio.Lock()
+    return _tenant_locks[tenant_id]
 
 
 def get_monotonic_utc() -> datetime.datetime:
@@ -172,15 +180,26 @@ class AuditLedger:
             )
             return record
 
-        if db_session:
-            return await _persist(db_session)
-        else:
-            try:
-                async with db_context() as session:
-                    return await _persist(session)
-            except (GeneratorExit, asyncio.CancelledError, Exception) as exc:
-                if isinstance(exc, (GeneratorExit, asyncio.CancelledError)):
+        tenant_lock = _get_tenant_lock(request.tenant_id)
+        async with tenant_lock:
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    if db_session:
+                        return await _persist(db_session)
+                    else:
+                        async with db_context() as session:
+                            return await _persist(session)
+                except IntegrityError as ie:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.01 * (2 ** attempt))
+                        continue
+                    logger.error("audit_record_integrity_conflict_exceeded", error=str(ie))
+                    return None
+                except (GeneratorExit, asyncio.CancelledError):
                     logger.debug("audit_record_cancelled_on_shutdown")
                     return None
-                logger.error("audit_record_persist_error", error=str(exc))
-                return None
+                except Exception as exc:
+                    logger.error("audit_record_persist_error", error=str(exc))
+                    return None
+            return None

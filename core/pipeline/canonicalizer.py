@@ -13,8 +13,8 @@ ZERO_WIDTH_REGEX = re.compile(
     r"[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD\u2000-\u200A]"
 )
 
-# Potential base64 segments (at least 8 chars, base64 alphabet, proper padding)
-BASE64_PATTERN = re.compile(r"(?<![A-Za-z0-9+/])([A-Za-z0-9+/]{8,}={0,2})(?![A-Za-z0-9+/=])")
+# Potential base64 segments (at least 16 chars with padding, or at least 24 chars)
+BASE64_PATTERN = re.compile(r"(?<![A-Za-z0-9+/])([A-Za-z0-9+/]{16,}={0,2})(?![A-Za-z0-9+/=])")
 
 # Common visual confusable homoglyphs (Cyrillic and Greek lookalikes to Latin)
 HOMOGLYPH_MAP = str.maketrans({
@@ -55,9 +55,16 @@ def normalize_homoglyphs(text: str) -> str:
 
 def _safe_decode_base64(candidate: str) -> str | None:
     try:
-        # Avoid decoding trivial numbers or short strings
-        if len(candidate) < 8 or len(candidate) % 4 != 0:
+        # Avoid decoding plain English words or short strings
+        # A valid base64 payload must either be >= 24 characters or have explicit padding (= or ==)
+        if len(candidate) < 16 or len(candidate) % 4 != 0:
             return None
+        if len(candidate) < 24 and not candidate.endswith("="):
+            return None
+        # Normal words are [a-zA-Z], whereas base64 often has digits, +, /, or mixed case
+        if candidate.isalpha() and not candidate.endswith("=") and candidate.islower():
+            return None
+
         decoded_bytes = base64.b64decode(candidate, validate=True)
         if len(decoded_bytes) > MAX_DECODED_BYTES:
             return None
@@ -65,7 +72,7 @@ def _safe_decode_base64(candidate: str) -> str | None:
         decoded_str = decoded_bytes.decode("utf-8")
         # Check if mostly printable characters
         printable_ratio = sum(c.isprintable() or c.isspace() for c in decoded_str) / len(decoded_str)
-        if printable_ratio >= 0.85 and len(decoded_str.strip()) >= 3:
+        if printable_ratio >= 0.90 and len(decoded_str.strip()) >= 3:
             return decoded_str
     except Exception:
         pass

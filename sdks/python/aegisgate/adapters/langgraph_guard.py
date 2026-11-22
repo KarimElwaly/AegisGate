@@ -2,8 +2,8 @@ from collections.abc import Callable
 from typing import Any
 
 from aegisgate.client import AegisClient
-from aegisgate.exceptions import PolicyViolationError
-from aegisgate.models import ActionModel, ActorModel, ContentModel, EvaluationRequest, StageEnum
+from aegisgate.exceptions import ApprovalRequiredError, PolicyViolationError
+from aegisgate.models import ActionModel, ActorModel, ContentModel, DecisionEnum, EvaluationRequest, StageEnum
 
 
 class LangGraphGuard:
@@ -37,7 +37,10 @@ class LangGraphGuard:
             )
 
             verdict = await self.client.evaluate(eval_req)
-            if verdict.decision == "DENY":
+            if verdict.decision in ("SUSPEND_FOR_APPROVAL", DecisionEnum.SUSPEND_FOR_APPROVAL):
+                ticket_id = verdict.approval_ticket.ticket_id if verdict.approval_ticket else None
+                raise ApprovalRequiredError(f"AegisGate LangGraph Node '{name}' suspended: Human approval required", ticket_id=ticket_id, verdict=verdict)
+            if verdict.decision in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
                 reason = verdict.triggered_rules[0].reason if verdict.triggered_rules else "LangGraph step blocked"
                 raise PolicyViolationError(f"AegisGate LangGraph Node '{name}' Denied: {reason}", verdict)
 

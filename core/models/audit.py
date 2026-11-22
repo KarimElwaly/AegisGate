@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import DateTime, Float, String, Text
+from sqlalchemy import DateTime, Float, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database import Base
@@ -8,6 +8,9 @@ from core.database import Base
 
 class AuditRecord(Base):
     __tablename__ = "audit_records"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "prev_hash", name="uq_audit_records_tenant_prev_hash"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(64), index=True, default="default")

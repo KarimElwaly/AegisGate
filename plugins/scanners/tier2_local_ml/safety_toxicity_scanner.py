@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from core.logger import get_logger
 from core.registry.interfaces import BaseScanner, ScannerResult
 from core.schemas.events import EvaluationRequest
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("plugins.scanners.safety_toxicity_scanner")
 
@@ -98,9 +99,13 @@ class SafetyToxicityScanner(BaseScanner):
 
         matched_violations: dict[str, list[str]] = {}
 
+        backend_actual = cfg.backend
+        fallback_used = False
+
         # 1. Llama Guard endpoint check (if configured and running)
         if cfg.backend == "llama_guard" and cfg.endpoint_url:
             try:
+                await validate_outbound_url(cfg.endpoint_url, target_type="safety_endpoint")
                 async with httpx.AsyncClient(timeout=3.0) as client:
                     resp = await client.post(
                         cfg.endpoint_url,
@@ -110,11 +115,20 @@ class SafetyToxicityScanner(BaseScanner):
                         data = resp.json()
                         if data.get("is_unsafe", False):
                             matched_violations["llama_guard_violation"] = data.get("categories", ["unsafe"])
+            except SSRFProtectionError as ssrf_err:
+                logger.warning("safety_toxicity_endpoint_ssrf_blocked", url=cfg.endpoint_url, error=str(ssrf_err))
+                fallback_used = True
+                backend_actual = "heuristic_fallback"
             except Exception as err:
                 logger.debug("Llama Guard endpoint unreachable, falling back to heuristics", error=str(err))
+                fallback_used = True
+                backend_actual = "heuristic_fallback"
 
         # 2. Heuristic taxonomy patterns
         if not matched_violations:
+            if cfg.backend == "llama_guard":
+                fallback_used = True
+                backend_actual = "heuristic_fallback"
             for category, patterns in TOXICITY_PATTERNS.items():
                 if category not in cfg.categories:
                     continue
@@ -129,8 +143,22 @@ class SafetyToxicityScanner(BaseScanner):
                 tier=self.tier,
                 status=cfg.action_on_toxic,
                 score=0.95,
-                details={"backend": cfg.backend, "categories": matched_violations},
-                message=f"Safety Toxicity Scanner ({cfg.backend}): Prohibited harmful content detected: {list(matched_violations.keys())}",
+                details={
+                    "backend": cfg.backend,
+                    "backend_actual": backend_actual,
+                    "fallback_used": fallback_used,
+                    "categories": matched_violations,
+                },
+                message=f"Safety Toxicity Scanner ({backend_actual}): Prohibited harmful content detected: {list(matched_violations.keys())}",
             )
 
-        return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
+        return ScannerResult(
+            scanner_name=self.name,
+            tier=self.tier,
+            status="pass",
+            details={
+                "backend": cfg.backend,
+                "backend_actual": backend_actual,
+                "fallback_used": fallback_used,
+            },
+        )

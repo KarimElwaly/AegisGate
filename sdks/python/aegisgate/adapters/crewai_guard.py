@@ -3,8 +3,8 @@ from collections.abc import Callable
 from typing import Any
 
 from aegisgate.client import AegisClient
-from aegisgate.exceptions import PolicyViolationError
-from aegisgate.models import ActionModel, ActorModel, ContentModel, EvaluationRequest, StageEnum
+from aegisgate.exceptions import ApprovalRequiredError, PolicyViolationError
+from aegisgate.models import ActionModel, ActorModel, ContentModel, DecisionEnum, EvaluationRequest, StageEnum
 
 
 class CrewAIGuard:
@@ -38,15 +38,20 @@ class CrewAIGuard:
             )
 
             verdict_pre = await self.client.evaluate(eval_req_pre)
-            if verdict_pre.decision == "DENY":
+            if verdict_pre.decision in ("SUSPEND_FOR_APPROVAL", DecisionEnum.SUSPEND_FOR_APPROVAL):
+                ticket_id = verdict_pre.approval_ticket.ticket_id if verdict_pre.approval_ticket else None
+                raise ApprovalRequiredError(f"AegisGate CrewAI Tool '{name}' suspended: Human approval required", ticket_id=ticket_id, verdict=verdict_pre)
+            if verdict_pre.decision in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
                 reason = verdict_pre.triggered_rules[0].reason if verdict_pre.triggered_rules else "Pre-call blocked"
                 raise PolicyViolationError(f"AegisGate CrewAI Tool '{name}' Denied: {reason}", verdict_pre)
 
+            effective_kwargs = verdict_pre.mutated_parameters if verdict_pre.mutated_parameters else kwargs
+
             # 2. Execute underlying tool
             if inspect.iscoroutinefunction(tool_func):
-                output = await tool_func(*args, **kwargs)
+                output = await tool_func(*args, **effective_kwargs)
             else:
-                output = tool_func(*args, **kwargs)
+                output = tool_func(*args, **effective_kwargs)
 
             # 3. TOOL_POST_CALL Evaluation
             eval_req_post = EvaluationRequest(
@@ -54,14 +59,20 @@ class CrewAIGuard:
                 policy_pack_id=self.policy_pack_id,
                 stage=StageEnum.TOOL_POST_CALL,
                 actor=ActorModel(id=name, role=self.agent_role),
-                action=ActionModel(name=name, parameters=kwargs or {}),
+                action=ActionModel(name=name, parameters=effective_kwargs or {}),
                 content=ContentModel(output_payload=str(output)),
             )
 
             verdict_post = await self.client.evaluate(eval_req_post)
-            if verdict_post.decision == "DENY":
+            if verdict_post.decision in ("SUSPEND_FOR_APPROVAL", DecisionEnum.SUSPEND_FOR_APPROVAL):
+                ticket_id = verdict_post.approval_ticket.ticket_id if verdict_post.approval_ticket else None
+                raise ApprovalRequiredError(f"AegisGate CrewAI Tool Output '{name}' suspended: Human approval required", ticket_id=ticket_id, verdict=verdict_post)
+            if verdict_post.decision in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
                 reason = verdict_post.triggered_rules[0].reason if verdict_post.triggered_rules else "Post-call blocked"
                 raise PolicyViolationError(f"AegisGate CrewAI Tool Output '{name}' Denied: {reason}", verdict_post)
+
+            if verdict_post.mutated_content:
+                output = verdict_post.mutated_content.get("output_payload", output)
 
             return output
 
@@ -100,12 +111,19 @@ class CrewAIGuard:
             )
 
             verdict = await self.client.evaluate(eval_req)
-            if verdict.decision == "DENY":
+            if verdict.decision in ("SUSPEND_FOR_APPROVAL", DecisionEnum.SUSPEND_FOR_APPROVAL):
+                ticket_id = verdict.approval_ticket.ticket_id if verdict.approval_ticket else None
+                raise ApprovalRequiredError(f"AegisGate CrewAI Task '{name}' suspended: Human approval required", ticket_id=ticket_id, verdict=verdict)
+            if verdict.decision in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
                 reason = verdict.triggered_rules[0].reason if verdict.triggered_rules else "Task output blocked"
                 raise PolicyViolationError(f"AegisGate CrewAI Task '{name}' Denied: {reason}", verdict)
 
+            effective_output = task_output
+            if verdict.mutated_content and "output_payload" in verdict.mutated_content:
+                effective_output = verdict.mutated_content["output_payload"]
+
             if inspect.iscoroutinefunction(task_callback):
-                return await task_callback(task_output, *args, **kwargs)
-            return task_callback(task_output, *args, **kwargs)
+                return await task_callback(effective_output, *args, **kwargs)
+            return task_callback(effective_output, *args, **kwargs)
 
         return _governed_task_async

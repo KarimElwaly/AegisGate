@@ -3,6 +3,8 @@ import time
 from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from core.auth.dependencies import authenticate_credentials
+from core.config import get_settings
 from core.governance.budgets import get_budget_manager
 from core.governance.kill_switch import get_kill_switch_service
 from core.logger import get_logger
@@ -24,27 +26,49 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
     """
     await websocket.accept()
 
-    # Extract session context from query params or headers
     query_params = dict(websocket.query_params)
     headers = dict(websocket.headers)
 
-    tenant_id = (
-        query_params.get("tenant_id")
-        or headers.get("x-aegis-tenant-id")
-        or "default"
+    raw_auth = (
+        query_params.get("api_key")
+        or query_params.get("token")
+        or headers.get("x-aegis-key")
+        or headers.get("x-aegis-api-key")
+        or headers.get("authorization")
     )
-    workspace_id = (
-        query_params.get("workspace_id")
-        or headers.get("x-aegis-workspace-id")
-        or "default"
-    )
+    req_tenant = query_params.get("tenant_id") or headers.get("x-aegis-tenant-id")
+    req_workspace = query_params.get("workspace_id") or headers.get("x-aegis-workspace-id")
+
+    settings = get_settings()
+    try:
+        actor = await authenticate_credentials(raw_auth, x_tenant_id=req_tenant, x_workspace_id=req_workspace)
+    except Exception as auth_err:
+        await websocket.send_text(
+            json.dumps({"type": "error", "error": {"type": "authentication_error", "message": str(auth_err)}})
+        )
+        await websocket.close(code=1008, reason="Authentication failed")
+        return
+
+    if settings.AEGIS_ENV != "test" and actor.auth_type == "anonymous":
+        await websocket.send_text(
+            json.dumps({"type": "error", "error": {"type": "authentication_error", "message": "Authentication required"}})
+        )
+        await websocket.close(code=1008, reason="Authentication required")
+        return
+
+    tenant_id = actor.tenant_id
+    workspace_id = actor.workspace_id
+    actor_id = actor.actor_id
+    actor_role = actor.role
+
     session_id = (
         query_params.get("session_id")
         or headers.get("x-aegis-session-id")
         or f"rt-sess-{int(time.time())}"
     )
     policy_pack_id = (
-        query_params.get("policy_pack")
+        actor.default_policy_pack_id
+        or query_params.get("policy_pack")
         or headers.get("x-aegis-policy-pack")
         or "base-enterprise"
     )
@@ -103,13 +127,13 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
                     session_id=session_id,
                     policy_pack_id=policy_pack_id,
                     stage=StageEnum.LLM_INPUT,
-                    actor=ActorModel(id="realtime_client", role="user"),
+                    actor=ActorModel(id=actor_id, role=actor_role),
                     action=ActionModel(name="realtime_input"),
                     content=ContentModel(trusted_instructions="", untrusted_data=text_content.strip()),
                 )
                 verdict = await orchestrator.evaluate(eval_req)
 
-                if verdict.decision == DecisionEnum.DENY:
+                if verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE):
                     reason = verdict.triggered_rules[0].reason if verdict.triggered_rules else "Realtime input denied by policy"
                     await websocket.send_text(
                         json.dumps({
@@ -123,6 +147,34 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
                     )
                     continue
 
+                if verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "error",
+                            "error": {
+                                "type": "approval_required",
+                                "message": "Realtime input suspended: Human approval required",
+                                "verdict_id": verdict.verdict_id,
+                                "ticket_id": verdict.approval_ticket.get("ticket_id") if verdict.approval_ticket else None,
+                                "approval_ticket": verdict.approval_ticket,
+                            },
+                        })
+                    )
+                    continue
+
+                if verdict.decision == DecisionEnum.MODIFY and verdict.mutated_content:
+                    mutated_text = verdict.mutated_content.get("untrusted_data")
+                    if mutated_text:
+                        if isinstance(content, list):
+                            for part in content:
+                                if isinstance(part, dict) and "text" in part:
+                                    part["text"] = mutated_text
+                                    break
+                        elif isinstance(content, str):
+                            item["content"] = mutated_text
+                        elif "text" in event:
+                            event["text"] = mutated_text
+
             # 2. TOOL / FUNCTION CALLS (TOOL_PRE_CALL)
             elif event_type in ("response.function_call_arguments.done", "function_call", "tool_call"):
                 call_name = event.get("name") or event.get("call_id") or "function"
@@ -135,12 +187,12 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
                     session_id=session_id,
                     policy_pack_id=policy_pack_id,
                     stage=StageEnum.TOOL_PRE_CALL,
-                    actor=ActorModel(id="realtime_agent", role="agent"),
+                    actor=ActorModel(id=actor_id, role=actor_role),
                     action=ActionModel(name=call_name, parameters=parsed_args),
                 )
                 verdict = await orchestrator.evaluate(eval_req)
 
-                if verdict.decision == DecisionEnum.DENY:
+                if verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE):
                     reason = verdict.triggered_rules[0].reason if verdict.triggered_rules else "Tool call denied by policy"
                     await websocket.send_text(
                         json.dumps({
@@ -154,6 +206,27 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
                     )
                     continue
 
+                if verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "error",
+                            "error": {
+                                "type": "approval_required",
+                                "message": "Realtime tool call suspended: Human approval required",
+                                "verdict_id": verdict.verdict_id,
+                                "ticket_id": verdict.approval_ticket.get("ticket_id") if verdict.approval_ticket else None,
+                                "approval_ticket": verdict.approval_ticket,
+                            },
+                        })
+                    )
+                    continue
+
+                if (verdict.decision == DecisionEnum.MODIFY or verdict.mutated_parameters) and verdict.mutated_parameters:
+                    if isinstance(raw_args, str):
+                        event["arguments"] = json.dumps(verdict.mutated_parameters)
+                    else:
+                        event["arguments"] = verdict.mutated_parameters
+
             # 3. ASSISTANT OUTPUT TRANSCRIPT DELTAS (LLM_OUTPUT)
             elif event_type in ("response.audio_transcript.delta", "response.text.delta", "assistant_delta"):
                 delta_text = event.get("delta", "")
@@ -164,14 +237,13 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
                         session_id=session_id,
                         policy_pack_id=policy_pack_id,
                         stage=StageEnum.LLM_OUTPUT,
-                        actor=ActorModel(id="realtime_assistant", role="assistant"),
+                        actor=ActorModel(id=actor_id, role="assistant"),
                         action=ActionModel(name="realtime_output_delta"),
                         content=ContentModel(output_payload=delta_text),
                     )
                     verdict = await orchestrator.evaluate(eval_req)
 
-                    if verdict.decision == DecisionEnum.DENY:
-                        # Redact or close connection on output leak
+                    if verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE):
                         await websocket.send_text(
                             json.dumps({
                                 "type": "error",
@@ -183,6 +255,11 @@ async def realtime_websocket_proxy(websocket: WebSocket) -> None:
                             })
                         )
                         continue
+
+                    if verdict.decision == DecisionEnum.MODIFY and verdict.mutated_content:
+                        mutated_out = verdict.mutated_content.get("output_payload")
+                        if mutated_out is not None:
+                            event["delta"] = mutated_out
 
             # Echo/forward permitted frame back in mock/proxy mode
             ack_event = dict(event)

@@ -30,6 +30,7 @@ dependencies = [
     "onnxruntime>=1.19.0",
     "pyjwt>=2.9.0",
     "click>=8.0.0",
+    "sqlglot>=25.0.0",
 ]
 
 [project.scripts]

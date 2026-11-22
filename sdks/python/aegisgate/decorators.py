@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .client import AegisClient
-from .exceptions import PolicyViolationError
+from .exceptions import ApprovalRequiredError, PolicyViolationError
 from .models import DecisionEnum, StageEnum
 
 _global_client: AegisClient | None = None
@@ -42,12 +42,22 @@ def governed_tool(
                     action_name=tool_name,
                     parameters=params,
                 )
-                if pre_verdict.decision == DecisionEnum.DENY and not fail_open:
+                if pre_verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = pre_verdict.approval_ticket.ticket_id if pre_verdict.approval_ticket else None
+                    raise ApprovalRequiredError(f"Governed tool '{tool_name}' requires human approval", ticket_id=ticket_id, verdict=pre_verdict)
+                if pre_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
                     reason = pre_verdict.triggered_rules[0].reason if pre_verdict.triggered_rules else "Tool Pre-Call Denied"
                     raise PolicyViolationError(f"Governed tool '{tool_name}' blocked by policy: {reason}", verdict=pre_verdict)
 
+                call_kwargs = kwargs
+                if pre_verdict.mutated_parameters:
+                    call_kwargs = dict(kwargs)
+                    for k, v in pre_verdict.mutated_parameters.items():
+                        if k != "_args":
+                            call_kwargs[k] = v
+
                 # 2. Execute target function
-                result = await fn(*args, **kwargs)
+                result = await fn(*args, **call_kwargs)
 
                 # 3. Post-call evaluation
                 post_verdict = await sdk_client.evaluate(
@@ -56,7 +66,10 @@ def governed_tool(
                     parameters=params,
                     untrusted_data=result,
                 )
-                if post_verdict.decision == DecisionEnum.DENY and not fail_open:
+                if post_verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = post_verdict.approval_ticket.ticket_id if post_verdict.approval_ticket else None
+                    raise ApprovalRequiredError(f"Governed tool '{tool_name}' output requires human approval", ticket_id=ticket_id, verdict=post_verdict)
+                if post_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
                     reason = post_verdict.triggered_rules[0].reason if post_verdict.triggered_rules else "Tool Output Denied"
                     raise PolicyViolationError(f"Governed tool '{tool_name}' output blocked by policy: {reason}", verdict=post_verdict)
 
@@ -80,12 +93,22 @@ def governed_tool(
                     action_name=tool_name,
                     parameters=params,
                 )
-                if pre_verdict.decision == DecisionEnum.DENY and not fail_open:
+                if pre_verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = pre_verdict.approval_ticket.ticket_id if pre_verdict.approval_ticket else None
+                    raise ApprovalRequiredError(f"Governed tool '{tool_name}' requires human approval", ticket_id=ticket_id, verdict=pre_verdict)
+                if pre_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
                     reason = pre_verdict.triggered_rules[0].reason if pre_verdict.triggered_rules else "Tool Pre-Call Denied"
                     raise PolicyViolationError(f"Governed tool '{tool_name}' blocked by policy: {reason}", verdict=pre_verdict)
 
+                call_kwargs = kwargs
+                if pre_verdict.mutated_parameters:
+                    call_kwargs = dict(kwargs)
+                    for k, v in pre_verdict.mutated_parameters.items():
+                        if k != "_args":
+                            call_kwargs[k] = v
+
                 # 2. Execute target function
-                result = fn(*args, **kwargs)
+                result = fn(*args, **call_kwargs)
 
                 # 3. Post-call evaluation
                 post_verdict = sdk_client.evaluate_sync(
@@ -94,7 +117,10 @@ def governed_tool(
                     parameters=params,
                     untrusted_data=result,
                 )
-                if post_verdict.decision == DecisionEnum.DENY and not fail_open:
+                if post_verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = post_verdict.approval_ticket.ticket_id if post_verdict.approval_ticket else None
+                    raise ApprovalRequiredError(f"Governed tool '{tool_name}' output requires human approval", ticket_id=ticket_id, verdict=post_verdict)
+                if post_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
                     reason = post_verdict.triggered_rules[0].reason if post_verdict.triggered_rules else "Tool Output Denied"
                     raise PolicyViolationError(f"Governed tool '{tool_name}' output blocked by policy: {reason}", verdict=post_verdict)
 
@@ -123,19 +149,33 @@ def governed_llm(
             async def async_wrapper(prompt: str, *args, **kwargs):
                 verdict = await sdk_client.evaluate(
                     stage=StageEnum.LLM_INPUT,
-                    trusted_instructions=prompt,
+                    trusted_instructions="",
+                    untrusted_data=prompt,
                 )
-                if verdict.decision == DecisionEnum.DENY and not fail_open:
-                    raise PolicyViolationError(f"LLM input blocked: {verdict.triggered_rules[0].reason}", verdict=verdict)
+                if verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = verdict.approval_ticket.ticket_id if verdict.approval_ticket else None
+                    raise ApprovalRequiredError("LLM input suspended: Human approval required", ticket_id=ticket_id, verdict=verdict)
+                if verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
+                    raise PolicyViolationError(f"LLM input blocked: {verdict.triggered_rules[0].reason if verdict.triggered_rules else 'Denied'}", verdict=verdict)
 
-                result = await fn(prompt, *args, **kwargs)
+                effective_prompt = prompt
+                if verdict.decision == DecisionEnum.MODIFY and verdict.mutated_content:
+                    effective_prompt = verdict.mutated_content.get("untrusted_data", prompt)
+
+                result = await fn(effective_prompt, *args, **kwargs)
 
                 out_verdict = await sdk_client.evaluate(
                     stage=StageEnum.LLM_OUTPUT,
                     output_payload=str(result),
                 )
-                if out_verdict.decision == DecisionEnum.DENY and not fail_open:
-                    raise PolicyViolationError(f"LLM output blocked: {out_verdict.triggered_rules[0].reason}", verdict=out_verdict)
+                if out_verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = out_verdict.approval_ticket.ticket_id if out_verdict.approval_ticket else None
+                    raise ApprovalRequiredError("LLM output suspended: Human approval required", ticket_id=ticket_id, verdict=out_verdict)
+                if out_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
+                    raise PolicyViolationError(f"LLM output blocked: {out_verdict.triggered_rules[0].reason if out_verdict.triggered_rules else 'Denied'}", verdict=out_verdict)
+
+                if out_verdict.decision == DecisionEnum.MODIFY and out_verdict.mutated_content:
+                    return out_verdict.mutated_content.get("output_payload", result)
 
                 return result
 
@@ -146,19 +186,33 @@ def governed_llm(
             def sync_wrapper(prompt: str, *args, **kwargs):
                 verdict = sdk_client.evaluate_sync(
                     stage=StageEnum.LLM_INPUT,
-                    trusted_instructions=prompt,
+                    trusted_instructions="",
+                    untrusted_data=prompt,
                 )
-                if verdict.decision == DecisionEnum.DENY and not fail_open:
-                    raise PolicyViolationError(f"LLM input blocked: {verdict.triggered_rules[0].reason}", verdict=verdict)
+                if verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = verdict.approval_ticket.ticket_id if verdict.approval_ticket else None
+                    raise ApprovalRequiredError("LLM input suspended: Human approval required", ticket_id=ticket_id, verdict=verdict)
+                if verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
+                    raise PolicyViolationError(f"LLM input blocked: {verdict.triggered_rules[0].reason if verdict.triggered_rules else 'Denied'}", verdict=verdict)
 
-                result = fn(prompt, *args, **kwargs)
+                effective_prompt = prompt
+                if verdict.decision == DecisionEnum.MODIFY and verdict.mutated_content:
+                    effective_prompt = verdict.mutated_content.get("untrusted_data", prompt)
+
+                result = fn(effective_prompt, *args, **kwargs)
 
                 out_verdict = sdk_client.evaluate_sync(
                     stage=StageEnum.LLM_OUTPUT,
                     output_payload=str(result),
                 )
-                if out_verdict.decision == DecisionEnum.DENY and not fail_open:
-                    raise PolicyViolationError(f"LLM output blocked: {out_verdict.triggered_rules[0].reason}", verdict=out_verdict)
+                if out_verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL and not fail_open:
+                    ticket_id = out_verdict.approval_ticket.ticket_id if out_verdict.approval_ticket else None
+                    raise ApprovalRequiredError("LLM output suspended: Human approval required", ticket_id=ticket_id, verdict=out_verdict)
+                if out_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE) and not fail_open:
+                    raise PolicyViolationError(f"LLM output blocked: {out_verdict.triggered_rules[0].reason if out_verdict.triggered_rules else 'Denied'}", verdict=out_verdict)
+
+                if out_verdict.decision == DecisionEnum.MODIFY and out_verdict.mutated_content:
+                    return out_verdict.mutated_content.get("output_payload", result)
 
                 return result
 

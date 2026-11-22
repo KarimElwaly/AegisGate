@@ -196,6 +196,7 @@ class SqlAstGuard(BaseScanner):
 
         # Handle Tenant Predicate
         if stmt_type == "SELECT" and cfg.enforce_tenant_predicate:
+            safe_tenant_id = tenant_id.replace("'", "''")
             has_tenant_filter = False
             for eq in expression.find_all(exp.EQ):
                 if eq.left and getattr(eq.left, "name", "").lower() == cfg.tenant_column.lower():
@@ -203,7 +204,7 @@ class SqlAstGuard(BaseScanner):
                     break
             if not has_tenant_filter:
                 if cfg.auto_inject_tenant_predicate and tenant_id:
-                    expression = expression.where(f"{cfg.tenant_column} = '{tenant_id}'")
+                    expression = expression.where(f"{cfg.tenant_column} = '{safe_tenant_id}'")
                     mutated = True
                 else:
                     violations.append(f"Query missing mandatory tenant predicate: '{cfg.tenant_column} = ...'")
@@ -278,25 +279,30 @@ class SqlAstGuard(BaseScanner):
 
         # 5. Enforce Tenant Predicate
         if stmt_type == "SELECT" and cfg.enforce_tenant_predicate:
-            tenant_regex = rf"(?i)\b{re.escape(cfg.tenant_column)}\s*=\s*['\"]?{re.escape(tenant_id)}['\"]?"
+            safe_tenant_id = tenant_id.replace("'", "''")
+            tenant_regex = rf"(?i)\b{re.escape(cfg.tenant_column)}\s*=\s*['\"]?{re.escape(safe_tenant_id)}['\"]?"
             if not re.search(tenant_regex, normalized):
                 if cfg.auto_inject_tenant_predicate and tenant_id:
                     clean = mutated_sql.rstrip(";").rstrip()
-                    if re.search(r"(?i)\bWHERE\b", clean):
-                        # Inject AND tenant_id = ...
-                        mutated_sql = re.sub(
-                            r"(?i)\bWHERE\b",
-                            f"WHERE {cfg.tenant_column} = '{tenant_id}' AND",
-                            clean,
-                            count=1,
-                        ) + ";"
+                    where_match = re.search(r"(?i)\bWHERE\b", clean)
+                    if where_match:
+                        pre_where = clean[:where_match.start()].strip()
+                        after_where = clean[where_match.end():].strip()
+                        tail_match = re.search(r"(?i)\b(GROUP\s+BY|ORDER\s+BY|LIMIT|HAVING|WINDOW)\b", after_where)
+                        if tail_match:
+                            where_expr = after_where[:tail_match.start()].strip()
+                            tail = after_where[tail_match.start():].strip()
+                            mutated_sql = f"{pre_where} WHERE {cfg.tenant_column} = '{safe_tenant_id}' AND ({where_expr}) {tail};"
+                        else:
+                            where_expr = after_where.strip()
+                            mutated_sql = f"{pre_where} WHERE {cfg.tenant_column} = '{safe_tenant_id}' AND ({where_expr});"
                     else:
                         # Append WHERE before ORDER BY / LIMIT
                         parts = re.split(r"(?i)\b(ORDER\s+BY|LIMIT|GROUP\s+BY)\b", clean, maxsplit=1)
                         if len(parts) > 1:
-                            mutated_sql = f"{parts[0].strip()} WHERE {cfg.tenant_column} = '{tenant_id}' {parts[1]} {parts[2].strip()};"
+                            mutated_sql = f"{parts[0].strip()} WHERE {cfg.tenant_column} = '{safe_tenant_id}' {parts[1]} {parts[2].strip()};"
                         else:
-                            mutated_sql = f"{clean} WHERE {cfg.tenant_column} = '{tenant_id}';"
+                            mutated_sql = f"{clean} WHERE {cfg.tenant_column} = '{safe_tenant_id}';"
                     mutated = True
                 else:
                     violations.append(f"Query missing mandatory tenant predicate: '{cfg.tenant_column} = {tenant_id}'")

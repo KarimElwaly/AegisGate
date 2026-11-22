@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.logger import get_logger
 from core.registry.interfaces import BaseNotifier
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("plugins.notifiers.siem_cef")
 
@@ -50,6 +51,11 @@ class SiemCefNotifier(BaseNotifier):
 
         if cfg.siem_endpoint_url:
             try:
+                await validate_outbound_url(cfg.siem_endpoint_url, target_type="siem_endpoint")
+            except SSRFProtectionError as e:
+                logger.warning("siem_endpoint_ssrf_blocked", url=cfg.siem_endpoint_url, error=str(e))
+                return False
+            try:
                 async with httpx.AsyncClient(timeout=4.0) as client:
                     resp = await client.post(cfg.siem_endpoint_url, content=cef_line.encode("utf-8"), headers={"Content-Type": "text/plain"})
                     return resp.status_code < 400
@@ -58,6 +64,11 @@ class SiemCefNotifier(BaseNotifier):
                 return False
 
         if cfg.siem_host:
+            try:
+                await validate_outbound_url(f"http://{cfg.siem_host}:{cfg.siem_port}", target_type="siem_host")
+            except SSRFProtectionError as e:
+                logger.warning("siem_host_ssrf_blocked", host=cfg.siem_host, error=str(e))
+                return False
             # Send via TCP/UDP stream if host is configured
             try:
                 _, writer = await asyncio.wait_for(

@@ -12,7 +12,7 @@ scanners:
     timeout_ms: 50
     on_timeout: flag
     config:
-      action_on_detect: block
+      action_on_match: block
 
   - name: ner_pii_scanner
     enabled: true
@@ -67,6 +67,7 @@ rules:
       severity: critical
       reason: "PCI DSS Requirement 6: Financial transactions require four-eyes dual approval"
       compliance_tags: ["PCI-DSS-REQ-6", "DUAL-APPROVAL", "HITL-MANDATORY"]
-      required_approvals: 2
-      required_approver_roles: ["finance_lead", "security_officer"]
+      approval_config:
+        required_approvals: 2
+        required_approver_roles: ["finance_lead", "security_officer"]
 

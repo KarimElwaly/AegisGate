@@ -10,6 +10,8 @@ from core.telemetry import record_proxy_request
 from core.schemas.common import DecisionEnum, StageEnum
 from core.schemas.events import ActionModel, ActorModel, ContentModel, EvaluationRequest
 from core.schemas.verdicts import EvaluationVerdict, TriggeredRule
+from gateways.llm_proxy.translators.base import BaseProtocolTranslator
+from gateways.llm_proxy.translators.openai_translator import OpenAIProtocolTranslator
 
 logger = get_logger("gateways.llm_proxy.streaming")
 
@@ -26,8 +28,9 @@ class SSEStreamGuard:
     SECRET_PATTERN = re.compile(
         r"AKIA[0-9A-Z]{16}"
         r"|-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
-        r"|sk-proj-[A-Za-z0-9_-]{32,}"
-        r"|sk-[A-Za-z0-9]{32,}"
+        r"|sk-proj-[A-Za-z0-9_-]{20,}"
+        r"|sk-ant-[A-Za-z0-9_-]{20,}"
+        r"|sk-[A-Za-z0-9_-]{20,}"
         r"|ghp_[A-Za-z0-9]{36}"
         r"|xox[baprs]-[A-Za-z0-9-]{10,}"
         r"|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9._-]{15,}\.[A-Za-z0-9_-]{15,}"
@@ -44,6 +47,7 @@ class SSEStreamGuard:
         actor_role: str = "user",
         model: str = "default-model",
         policy_pack_id: str = "base-enterprise",
+        translator: BaseProtocolTranslator | None = None,
     ) -> None:
         self.tenant_id = tenant_id
         self.session_id = session_id
@@ -54,6 +58,7 @@ class SSEStreamGuard:
         self.actor_role = actor_role
         self.model = model
         self.policy_pack_id = policy_pack_id
+        self.translator = translator or OpenAIProtocolTranslator()
 
         self.rolling_buffer = ""
         self.tail_overlap = ""
@@ -69,7 +74,7 @@ class SSEStreamGuard:
     ) -> AsyncGenerator[bytes, None]:
         try:
             async for raw_chunk in upstream_generator:
-                decoded = raw_chunk.decode("utf-8", errors="replace")
+                decoded = raw_chunk.decode("utf-8", errors="replace") if isinstance(raw_chunk, bytes) else str(raw_chunk)
                 lines = decoded.splitlines(keepends=True)
 
                 for line in lines:
@@ -78,7 +83,7 @@ class SSEStreamGuard:
                         continue
 
                     payload_str = line[6:].strip()
-                    if payload_str == "[DONE]":
+                    if self.translator.is_stream_done(payload_str):
                         # Final chunk: perform token reconciliation
                         await self._reconcile_final_tokens()
                         yield line.encode("utf-8")
@@ -87,71 +92,73 @@ class SSEStreamGuard:
                     try:
                         chunk_obj = json.loads(payload_str)
 
-                        # Capture usage if upstream emitted it (e.g. stream_options.include_usage)
-                        usage = chunk_obj.get("usage")
-                        if usage and isinstance(usage, dict):
-                            self.exact_usage = usage
+                        if self.translator.is_stream_done(payload_str, chunk_obj):
+                            await self._reconcile_final_tokens()
+                            yield line.encode("utf-8")
+                            continue
 
-                        choices = chunk_obj.get("choices", [])
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            content_piece = delta.get("content", "")
+                        # Capture usage if upstream emitted it
+                        usage = self.translator.extract_stream_usage(chunk_obj)
+                        if usage:
+                            if self.exact_usage is None:
+                                self.exact_usage = usage
+                            else:
+                                self.exact_usage.update(usage)
 
-                            if content_piece:
-                                self.streamed_characters += len(content_piece)
-                                combined_window = self.tail_overlap + content_piece
-                                self.rolling_buffer += content_piece
+                        content_piece = self.translator.extract_stream_delta(chunk_obj)
+                        if content_piece:
+                            self.streamed_characters += len(content_piece)
+                            combined_window = self.tail_overlap + content_piece
+                            self.rolling_buffer += content_piece
 
-                                # Check for secret exfiltration across split-token chunk boundary
-                                if self.SECRET_PATTERN.search(combined_window):
-                                    logger.critical(
-                                        "Mid-stream secret leak detected in SSE stream! Aborting...",
-                                        session_id=self.session_id,
-                                    )
-                                    # Perform partial token reconciliation & audit recording
-                                    await self._handle_mid_stream_abort()
+                            # Check for secret exfiltration across split-token chunk boundary
+                            if self.SECRET_PATTERN.search(combined_window):
+                                logger.critical(
+                                    "Mid-stream secret leak detected in SSE stream! Aborting...",
+                                    session_id=self.session_id,
+                                )
+                                # Perform partial token reconciliation & audit recording
+                                await self._handle_mid_stream_abort()
 
-                                    abort_chunk = {
-                                        "choices": [
-                                            {
-                                                "delta": {
-                                                    "content": "\n[STREAM ABORTED BY AEGISGATE: Sensitive credential leak detected]"
-                                                },
-                                                "finish_reason": "content_filter",
-                                            }
-                                        ]
-                                    }
-                                    yield f"data: {json.dumps(abort_chunk)}\n\ndata: [DONE]\n\n".encode()
-                                    return
+                                abort_chunk = self.translator.build_stream_abort_chunk("Sensitive credential leak detected")
+                                if self.translator.protocol_name == "anthropic":
+                                    yield (
+                                        f"event: content_block_delta\ndata: {json.dumps(abort_chunk)}\n\n"
+                                        f"event: message_delta\ndata: {json.dumps({'type': 'message_delta', 'delta': {'stop_reason': 'GUARDRAIL_INTERVENTION'}})}\n\n"
+                                        f"event: message_stop\ndata: {{\"type\":\"message_stop\"}}\n\n"
+                                    ).encode("utf-8")
+                                else:
+                                    yield f"data: {json.dumps(abort_chunk)}\n\ndata: [DONE]\n\n".encode("utf-8")
+                                return
 
-                                # Handle PII rehydration across split chunks
-                                piece_to_emit = content_piece
-                                if self.rehydrate_pii:
-                                    rehydrate_target = self.partial_pii_tail + content_piece
-                                    self.partial_pii_tail = ""
+                            # Handle PII rehydration across split chunks
+                            piece_to_emit = content_piece
+                            if self.rehydrate_pii:
+                                rehydrate_target = self.partial_pii_tail + content_piece
+                                self.partial_pii_tail = ""
 
-                                    if "<AEGIS_" in rehydrate_target:
-                                        # If ends with an unclosed tag prefix like '<AEGIS_PII_123', buffer the tail
-                                        tag_start = rehydrate_target.rfind("<AEGIS_")
-                                        tag_end = rehydrate_target.find(">", tag_start)
-                                        if tag_end == -1:
-                                            # Tag incomplete, buffer it
-                                            self.partial_pii_tail = rehydrate_target[tag_start:]
-                                            rehydrate_target = rehydrate_target[:tag_start]
+                                if "<AEGIS_" in rehydrate_target:
+                                    # If ends with an unclosed tag prefix like '<AEGIS_PII_123', buffer the tail
+                                    tag_start = rehydrate_target.rfind("<AEGIS_")
+                                    tag_end = rehydrate_target.find(">", tag_start)
+                                    if tag_end == -1:
+                                        # Tag incomplete, buffer it
+                                        self.partial_pii_tail = rehydrate_target[tag_start:]
+                                        rehydrate_target = rehydrate_target[:tag_start]
 
-                                        if rehydrate_target:
-                                            rehydrate_target = await self.vault.rehydrate(
-                                                self.tenant_id, self.session_id, rehydrate_target
-                                            )
-                                    piece_to_emit = rehydrate_target
+                                    if rehydrate_target:
+                                        rehydrate_target = await self.vault.rehydrate(
+                                            self.tenant_id, self.session_id, rehydrate_target
+                                        )
+                                piece_to_emit = rehydrate_target
 
-                                delta["content"] = piece_to_emit
-                                line = f"data: {json.dumps(chunk_obj)}\n\n"
+                            chunk_obj = self.translator.replace_stream_delta(chunk_obj, piece_to_emit)
+                            line = f"data: {json.dumps(chunk_obj)}\n\n"
 
-                                # Update sliding overlap tail buffer
-                                self.tail_overlap = combined_window[-self.buffer_window_size:]
-                                if len(self.rolling_buffer) > self.buffer_window_size:
-                                    self.rolling_buffer = self.rolling_buffer[-self.buffer_window_size:]
+                            # Update sliding overlap tail buffer
+                            self.tail_overlap = combined_window[-self.buffer_window_size:]
+                            if len(self.rolling_buffer) > self.buffer_window_size:
+                                self.rolling_buffer = self.rolling_buffer[-self.buffer_window_size:]
 
                         yield line.encode("utf-8")
                     except json.JSONDecodeError:

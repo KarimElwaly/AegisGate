@@ -1,8 +1,8 @@
 from typing import Any
 
 from aegisgate.client import AegisClient
-from aegisgate.exceptions import PolicyViolationError
-from aegisgate.models import ActionModel, ActorModel, ContentModel, EvaluationRequest, StageEnum
+from aegisgate.exceptions import ApprovalRequiredError, PolicyViolationError
+from aegisgate.models import ActionModel, ActorModel, ContentModel, DecisionEnum, EvaluationRequest, StageEnum
 
 
 class LlamaIndexGuard:
@@ -51,7 +51,7 @@ class LlamaIndexGuard:
             )
 
             verdict = await self.client.evaluate(eval_req)
-            if verdict.decision != "DENY":
+            if verdict.decision not in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
                 filtered_nodes.append(node)
 
         return filtered_nodes
@@ -75,8 +75,14 @@ class LlamaIndexGuard:
         )
 
         verdict = await self.client.evaluate(eval_req)
-        if verdict.decision == "DENY":
+        if verdict.decision in ("SUSPEND_FOR_APPROVAL", DecisionEnum.SUSPEND_FOR_APPROVAL):
+            ticket_id = verdict.approval_ticket.ticket_id if verdict.approval_ticket else None
+            raise ApprovalRequiredError("AegisGate LlamaIndex Response suspended: Human approval required", ticket_id=ticket_id, verdict=verdict)
+        if verdict.decision in ("DENY", "ESCALATE", DecisionEnum.DENY, DecisionEnum.ESCALATE):
             reason = verdict.triggered_rules[0].reason if verdict.triggered_rules else "Output blocked"
             raise PolicyViolationError(f"AegisGate LlamaIndex Response Denied: {reason}", verdict)
+
+        if verdict.mutated_content:
+            response_text = verdict.mutated_content.get("output_payload", response_text)
 
         return response_text

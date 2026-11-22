@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from gateways.llm_proxy.core_handler import execute_proxy_request
 from gateways.llm_proxy.translators.openai_translator import OpenAIProtocolTranslator
@@ -44,6 +45,7 @@ async def chat_completions(
     x_aegis_actor_id: str = Header(default="llm_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """OpenAI-compatible Chat Completions Reverse Proxy.
     Enforces llm_input guardrails before forwarding, and llm_output guardrails
@@ -63,4 +65,5 @@ async def chat_completions(
         x_aegis_actor_id=x_aegis_actor_id,
         x_aegis_actor_role=x_aegis_actor_role,
         x_aegis_upstream_url=x_aegis_upstream_url,
+        actor=actor,
     )

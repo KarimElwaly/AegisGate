@@ -177,3 +177,65 @@ class AnthropicProtocolTranslator(BaseProtocolTranslator):
             },
         }
 
+    def apply_input_mutations(
+        self, body: dict[str, Any], mutated_untrusted: str, mutated_trusted: str = ""
+    ) -> dict[str, Any]:
+        new_body = dict(body)
+        if mutated_trusted:
+            new_body["system"] = mutated_trusted
+        messages = [dict(m) for m in new_body.get("messages", [])]
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user" and mutated_untrusted:
+                content = messages[i].get("content")
+                if isinstance(content, str):
+                    messages[i]["content"] = mutated_untrusted
+                elif isinstance(content, list):
+                    # Replace first text block
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            block["text"] = mutated_untrusted
+                            break
+                break
+        new_body["messages"] = messages
+        return new_body
+
+    def extract_stream_delta(self, chunk_obj: dict[str, Any]) -> str | None:
+        etype = chunk_obj.get("type")
+        if etype == "content_block_delta":
+            delta = chunk_obj.get("delta", {})
+            return delta.get("text")
+        return None
+
+    def replace_stream_delta(self, chunk_obj: dict[str, Any], new_text: str) -> dict[str, Any]:
+        if chunk_obj.get("type") == "content_block_delta":
+            delta = chunk_obj.get("delta", {})
+            delta["text"] = new_text
+        return chunk_obj
+
+    def extract_stream_usage(self, chunk_obj: dict[str, Any]) -> dict[str, int] | None:
+        etype = chunk_obj.get("type")
+        if etype == "message_delta":
+            usage = chunk_obj.get("usage", {})
+            return {"completion_tokens": usage.get("output_tokens", 0)}
+        elif etype == "message_start":
+            usage = chunk_obj.get("message", {}).get("usage", {})
+            return {"prompt_tokens": usage.get("input_tokens", 0)}
+        return None
+
+    def build_stream_abort_chunk(self, reason: str) -> dict[str, Any]:
+        return {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "text_delta",
+                "text": f"\n[STREAM ABORTED BY AEGISGATE: {reason}]",
+            },
+        }
+
+    def is_stream_done(self, payload_str: str, chunk_obj: dict[str, Any] | None = None) -> bool:
+        if payload_str.strip() == "[DONE]":
+            return True
+        if chunk_obj and chunk_obj.get("type") == "message_stop":
+            return True
+        return False
+

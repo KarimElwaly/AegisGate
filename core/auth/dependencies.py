@@ -102,9 +102,13 @@ async def get_current_actor(
         try:
             payload = decode_access_token(token)
             user_id = payload.get("sub")
-            tid = payload.get("tenant_id") or x_tenant_id or "default"
-            wid = payload.get("workspace_id") or x_workspace_id or "default"
             role = payload.get("role", "Auditor")
+            claim_tid = payload.get("tenant_id")
+            if role == "SuperAdmin" and x_tenant_id:
+                tid = x_tenant_id
+            else:
+                tid = claim_tid or "default"
+            wid = payload.get("workspace_id") or x_workspace_id or "default"
             username = payload.get("username", "user")
 
             if not user_id:
@@ -128,7 +132,11 @@ async def get_current_actor(
                     user_id = claims.get("sub") or claims.get("email") or "oidc_user"
                     username = claims.get("preferred_username") or claims.get("email") or claims.get("name") or "oidc_user"
                     role = claims.get("role", "Auditor")
-                    tid = x_tenant_id or "default"
+                    claim_tid = claims.get("tenant_id")
+                    if role == "SuperAdmin" and x_tenant_id:
+                        tid = x_tenant_id
+                    else:
+                        tid = claim_tid or "default"
                     wid = x_workspace_id or "default"
 
                     current_tenant_id.set(tid)
@@ -231,9 +239,13 @@ async def get_pdp_actor(
         try:
             payload = decode_access_token(token)
             user_id = payload.get("sub")
-            tid = payload.get("tenant_id") or x_tenant_id or "default"
-            wid = payload.get("workspace_id") or x_workspace_id or "default"
             role = payload.get("role", "Auditor")
+            claim_tid = payload.get("tenant_id")
+            if role == "SuperAdmin" and x_tenant_id:
+                tid = x_tenant_id
+            else:
+                tid = claim_tid or "default"
+            wid = payload.get("workspace_id") or x_workspace_id or "default"
             username = payload.get("username", "user")
 
             if not user_id:
@@ -257,7 +269,11 @@ async def get_pdp_actor(
                     user_id = claims.get("sub") or claims.get("email") or "oidc_user"
                     username = claims.get("preferred_username") or claims.get("email") or claims.get("name") or "oidc_user"
                     role = claims.get("role", "Auditor")
-                    tid = x_tenant_id or "default"
+                    claim_tid = claims.get("tenant_id")
+                    if role == "SuperAdmin" and x_tenant_id:
+                        tid = x_tenant_id
+                    else:
+                        tid = claim_tid or "default"
                     wid = x_workspace_id or "default"
 
                     current_tenant_id.set(tid)
@@ -286,7 +302,7 @@ async def get_pdp_actor(
     current_tenant_id.set(tid)
     current_workspace_id.set(wid)
     settings = get_settings()
-    default_role = "SuperAdmin" if settings.AEGIS_ENV in ("test", "dev") else "Auditor"
+    default_role = "SuperAdmin" if settings.AEGIS_ENV == "test" else "Anonymous"
     return AuthenticatedActor(
         actor_id="anonymous",
         username="anonymous",
@@ -294,6 +310,30 @@ async def get_pdp_actor(
         workspace_id=wid,
         role=default_role,
         auth_type="anonymous",
+    )
+
+
+async def authenticate_credentials(
+    raw_key_or_token: str | None,
+    x_tenant_id: str | None = None,
+    x_workspace_id: str | None = None,
+) -> AuthenticatedActor:
+    """Helper to authenticate credentials extracted from non-standard channels (e.g. WebSocket query params/headers)."""
+    auth_header = None
+    x_api_key = None
+    if raw_key_or_token:
+        token_str = raw_key_or_token.strip()
+        if token_str.startswith("Bearer "):
+            auth_header = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str[7:].strip())
+        elif token_str.startswith("ag_live_") or token_str.startswith("aegis_live_"):
+            x_api_key = token_str
+        else:
+            auth_header = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_str)
+    return await get_pdp_actor(
+        auth_header=auth_header,
+        x_api_key=x_api_key,
+        x_tenant_id=x_tenant_id,
+        x_workspace_id=x_workspace_id,
     )
 
 

@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
+from core.config import get_settings
 from core.database import db_context
 from core.logger import get_logger
 from core.models.mcp import McpToolPinRecord, UpstreamMcpServerRecord
@@ -68,11 +70,27 @@ async def execute_tool_proxy(
     x_aegis_actor_id: str = Header(default="tool_caller"),
     x_aegis_actor_role: str = Header(default="worker"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ):
     """HTTP Tool Proxy.
     Enforces tool_pre_call governance (kill switch, loop detector, budgets, parameter guards)
     and tool_post_call scanning (PII, secrets, injection redaction).
     """
+    settings = get_settings()
+    if settings.AEGIS_ENV != "test" and actor.auth_type == "anonymous":
+        return Response(
+            status_code=401,
+            media_type="application/json",
+            content=json.dumps({"error": {"message": "Authentication required. Provide valid Virtual API Key or Bearer token.", "type": "authentication_error"}}),
+        )
+    if actor.auth_type != "anonymous":
+        x_aegis_tenant_id = actor.tenant_id
+        x_aegis_workspace_id = actor.workspace_id
+        x_aegis_actor_id = actor.actor_id
+        x_aegis_actor_role = actor.role
+        if actor.default_policy_pack_id and x_aegis_policy_pack == "base-enterprise":
+            x_aegis_policy_pack = actor.default_policy_pack_id
+
     body = await request.json() if request.headers.get("content-type") == "application/json" else {}
     parameters = body.get("parameters", body)
 
@@ -102,6 +120,22 @@ async def execute_tool_proxy(
                         "type": "aegisgate_tool_denial",
                         "verdict_id": pre_verdict.verdict_id,
                         "triggered_rules": [r.model_dump() for r in pre_verdict.triggered_rules],
+                    }
+                }
+            ),
+        )
+
+    if pre_verdict.decision == DecisionEnum.ESCALATE:
+        record_proxy_request("mcp_tool", "escalated")
+        return Response(
+            status_code=403,
+            media_type="application/json",
+            content=json.dumps(
+                {
+                    "error": {
+                        "message": "Tool execution escalated and blocked by policy",
+                        "type": "aegisgate_tool_escalation",
+                        "verdict_id": pre_verdict.verdict_id,
                     }
                 }
             ),
@@ -210,11 +244,26 @@ async def mcp_jsonrpc_gateway(
     x_aegis_session_id: str | None = Header(default=None),
     x_aegis_actor_id: str = Header(default="mcp_client"),
     x_aegis_actor_role: str = Header(default="agent"),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ):
     """Model Context Protocol (MCP) JSON-RPC 2.0 Gateway.
     Interprets JSON-RPC requests, enforces Anti-Rug-Pull schema pinning,
     role-based tool filtering, pre-call governance, and upstream proxying.
     """
+    settings = get_settings()
+    if settings.AEGIS_ENV != "test" and actor.auth_type == "anonymous":
+        return {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32000, "message": "Authentication required. Provide valid Virtual API Key or Bearer token."},
+        }
+    if actor.auth_type != "anonymous":
+        x_aegis_tenant_id = actor.tenant_id
+        x_aegis_workspace_id = actor.workspace_id
+        x_aegis_actor_id = actor.actor_id
+        x_aegis_actor_role = actor.role
+        if actor.default_policy_pack_id and x_aegis_policy_pack == "base-enterprise":
+            x_aegis_policy_pack = actor.default_policy_pack_id
     body = await request.json()
     msg_id = body.get("id")
     method = body.get("method")
@@ -320,6 +369,31 @@ async def mcp_jsonrpc_gateway(
                     "data": {"verdict_id": verdict.verdict_id},
                 },
             }
+        if verdict.decision == DecisionEnum.ESCALATE:
+            reason = verdict.triggered_rules[0].reason if verdict.triggered_rules else "Policy Escalated"
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {
+                    "code": -32004,
+                    "message": f"AegisGate MCP Policy Escalated: {reason}",
+                    "data": {"verdict_id": verdict.verdict_id},
+                },
+            }
+        if verdict.decision == DecisionEnum.SUSPEND_FOR_APPROVAL:
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {
+                    "code": -32003,
+                    "message": "AegisGate MCP Action Suspended: Human approval required",
+                    "data": {
+                        "verdict_id": verdict.verdict_id,
+                        "ticket_id": verdict.approval_ticket.get("ticket_id") if verdict.approval_ticket else None,
+                        "approval_ticket": verdict.approval_ticket,
+                    },
+                },
+            }
 
         effective_params = verdict.mutated_parameters or arguments
 
@@ -339,6 +413,7 @@ async def mcp_jsonrpc_gateway(
 
         if upstream_url:
             try:
+                await validate_outbound_url(upstream_url, target_type="mcp_server")
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(
                         upstream_url,
@@ -351,6 +426,16 @@ async def mcp_jsonrpc_gateway(
                     )
                     data = resp.json()
                     tool_result = data.get("result", {}).get("content", [{"type": "text", "text": resp.text}])
+            except SSRFProtectionError as ssrf_err:
+                logger.warning("SSRF blocked in MCP upstream URL", url=upstream_url, error=str(ssrf_err))
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "error": {
+                        "code": -32000,
+                        "message": f"AegisGate MCP SSRF Protection: Upstream URL blocked ({ssrf_err!s})",
+                    },
+                }
             except Exception as e:
                 logger.error("Upstream MCP invocation error", error=str(e))
                 tool_result = [{"type": "text", "text": f"Upstream MCP error: {e!s}"}]
@@ -374,7 +459,7 @@ async def mcp_jsonrpc_gateway(
             content=ContentModel(untrusted_data=tool_result),
         )
         post_verdict = await orchestrator.evaluate(post_req)
-        if post_verdict.decision == DecisionEnum.DENY:
+        if post_verdict.decision in (DecisionEnum.DENY, DecisionEnum.ESCALATE):
             reason = post_verdict.triggered_rules[0].reason if post_verdict.triggered_rules else "Post-Call Denied"
             return {
                 "jsonrpc": "2.0",

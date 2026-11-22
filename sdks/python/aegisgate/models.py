@@ -10,6 +10,7 @@ class DecisionEnum(str, Enum):
     DENY = "DENY"
     MODIFY = "MODIFY"
     SUSPEND_FOR_APPROVAL = "SUSPEND_FOR_APPROVAL"
+    ESCALATE = "ESCALATE"
 
 
 class StageEnum(str, Enum):
@@ -28,6 +29,7 @@ class ActorModel(BaseModel):
     id: str = "default_agent"
     role: str = "agent"
     delegation_depth: int = 0
+    delegation_chain: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -46,7 +48,9 @@ class ContentModel(BaseModel):
 
     trusted_instructions: str | None = None
     untrusted_data: Any | None = None
+    output_payload: str | None = None
     streaming: bool = False
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -94,6 +98,8 @@ class BudgetSnapshot(BaseModel):
     tokens_remaining: int | None = None
     cost_remaining_usd: float | None = None
     tool_calls_remaining: int | None = None
+    limit_tool_calls: int | None = None
+    used_tool_calls: int = 0
 
 
 class ApprovalTicketInfo(BaseModel):

@@ -120,10 +120,13 @@ class TieredScannerStage:
                 on_timeout = cfg_item.on_timeout if cfg_item else "flag"
                 typed_cfg = self.get_typed_config(s, raw_cfg, pack.id, pack.version)
 
+                # Mutating scanners (tokenizers/redactors) should operate on original raw text
+                target_req = req if s.name in ("pii_scanner", "ner_pii_scanner", "sql_ast_guard") else scan_req
+
                 tasks.append(
                     self.execute_scanner(
                         scanner=s,
-                        request=scan_req,
+                        request=target_req,
                         context=ctx.resolved_context,
                         typed_config=typed_cfg,
                         timeout_ms=timeout_ms,

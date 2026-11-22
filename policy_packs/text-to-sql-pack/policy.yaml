@@ -51,8 +51,7 @@ scanners:
 rules:
   - id: block_destructive_sql_mutation
     name: Block Destructive SQL Statements
-    severity: CRITICAL
-    stage: tool_pre_call
+    stages: ["tool_pre_call"]
     priority: 10
     condition:
       field: scanner_findings.sql_ast_guard.status
@@ -60,6 +59,7 @@ rules:
       value: block
     action:
       decision: DENY
+      severity: critical
       reason: Destructive or unauthorized SQL statement blocked by Text-to-SQL Governance Pack
       compliance_tags:
         - OWASP-LLM02
@@ -68,8 +68,7 @@ rules:
 
   - id: crescendo_multi_turn_escalation
     name: Escalate Multi-Turn Crescendo Risk
-    severity: HIGH
-    stage: llm_input
+    stages: ["llm_input"]
     priority: 20
     condition:
       field: session.cumulative_risk_score
@@ -77,6 +76,7 @@ rules:
       value: 0.70
     action:
       decision: DENY
+      severity: high
       reason: Multi-turn Crescendo jailbreak attempt detected (cumulative session risk exceeded 0.70)
       compliance_tags:
         - OWASP-LLM01

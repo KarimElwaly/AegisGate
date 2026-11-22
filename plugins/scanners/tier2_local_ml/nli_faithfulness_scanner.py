@@ -111,6 +111,8 @@ class NliFaithfulnessScanner(BaseScanner):
                 status=cfg.action_on_hallucination,
                 score=round(1.0 - faithfulness_score, 2),
                 details={
+                    "backend_actual": "lexical_overlap_heuristic",
+                    "fallback_used": True,
                     "faithfulness_score": round(faithfulness_score, 2),
                     "total_claims": len(sentences),
                     "supported_claims": supported_claims,
@@ -128,6 +130,8 @@ class NliFaithfulnessScanner(BaseScanner):
             status="pass",
             score=round(faithfulness_score, 2),
             details={
+                "backend_actual": "lexical_overlap_heuristic",
+                "fallback_used": True,
                 "faithfulness_score": round(faithfulness_score, 2),
                 "total_claims": len(sentences),
                 "supported_claims": supported_claims,

@@ -100,14 +100,31 @@ class TopicGuardScanner(BaseScanner):
         if matched_competitors:
             matched_topics["competitor_mention"] = matched_competitors
 
+        backend_actual = "keyword_heuristics"
+        fallback_used = cfg.backend == "embedding"
+
         if matched_topics:
             return ScannerResult(
                 scanner_name=self.name,
                 tier=self.tier,
                 status=cfg.action_on_violation,
                 score=0.8,
-                details={"backend": cfg.backend, "matched_topics": matched_topics},
+                details={
+                    "backend": cfg.backend,
+                    "backend_actual": backend_actual,
+                    "fallback_used": fallback_used,
+                    "matched_topics": matched_topics,
+                },
                 message=f"Topic Guard ({cfg.backend}): Prohibited domain discussion detected: {list(matched_topics.keys())}",
             )
 
-        return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")
+        return ScannerResult(
+            scanner_name=self.name,
+            tier=self.tier,
+            status="pass",
+            details={
+                "backend": cfg.backend,
+                "backend_actual": backend_actual,
+                "fallback_used": fallback_used,
+            },
+        )

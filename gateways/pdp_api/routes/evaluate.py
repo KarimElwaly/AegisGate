@@ -15,11 +15,11 @@ async def evaluate(
     orchestrator: PipelineOrchestrator = Depends(get_pipeline_orchestrator),
 ) -> EvaluationVerdict:
     """Sub-15ms Policy Decision Point evaluation endpoint."""
-    # Enforce cross-tenant isolation: Virtual Key bound to tenant A cannot evaluate for tenant B
-    if actor.auth_type == "virtual_key" and actor.tenant_id != request.tenant_id:
+    # Enforce cross-tenant isolation: non-SuperAdmin actor cannot evaluate for a different tenant
+    if actor.role != "SuperAdmin" and actor.tenant_id != request.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Virtual API Key for tenant '{actor.tenant_id}' cannot evaluate request for tenant '{request.tenant_id}'",
+            detail=f"Actor for tenant '{actor.tenant_id}' cannot evaluate request for tenant '{request.tenant_id}'",
         )
 
     try:

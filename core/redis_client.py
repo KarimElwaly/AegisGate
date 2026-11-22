@@ -34,6 +34,9 @@ async def get_redis_client() -> aioredis.Redis:
         logger.info("Connected to live Redis", url=settings.REDIS_URL)
         return _redis_client
     except Exception as exc:
+        if settings.AEGIS_ENV == "prod":
+            logger.error("Live Redis unreachable in production environment", error=str(exc))
+            raise RuntimeError(f"Live Redis unreachable in production environment: {exc!s}") from exc
         logger.warning(
             "Live Redis unreachable or auth failed, falling back to in-memory FakeRedis",
             error=str(exc),

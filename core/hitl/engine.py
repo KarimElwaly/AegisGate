@@ -16,6 +16,7 @@ from core.logger import get_logger
 from core.models.approval import ApprovalTicketRecord
 from core.schemas.events import EvaluationRequest
 from core.schemas.verdicts import EvaluationVerdict
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("core.hitl.engine")
 
@@ -214,7 +215,24 @@ class HITLEngine:
         status: str | None = None,
     ) -> list[ApprovalTicketResponse]:
         results: list[ApprovalTicketResponse] = []
-        # Return from memory matching tenant
+        try:
+            async with db_context() as session:
+                stmt = select(ApprovalTicketRecord).where(ApprovalTicketRecord.tenant_id == tenant_id)
+                if status:
+                    stmt = stmt.where(ApprovalTicketRecord.status == status)
+                stmt = stmt.order_by(ApprovalTicketRecord.created_at.desc())
+                res = await session.execute(stmt)
+                records = res.scalars().all()
+                if records:
+                    for rec in records:
+                        t_resp = await self.get_ticket(rec.ticket_id)
+                        if t_resp and (status is None or t_resp.status == status):
+                            results.append(t_resp)
+                    return results
+        except Exception as e:
+            logger.warning("db_list_tickets_error", error=str(e))
+
+        # Fallback to in-memory store matching tenant
         for t in self._mem_tickets.values():
             if t["tenant_id"] == tenant_id:
                 resp = await self.get_ticket(t["ticket_id"])
@@ -320,6 +338,17 @@ class HITLEngine:
         url = ticket_data.get("callback_url")
         secret = ticket_data.get("callback_secret") or "aegisgate-default-secret"
         if not url:
+            return
+
+        try:
+            await validate_outbound_url(url, target_type="hitl_callback")
+        except SSRFProtectionError as ssrf_err:
+            logger.warning(
+                "hitl_callback_ssrf_blocked",
+                ticket_id=ticket_data["ticket_id"],
+                url=url,
+                error=str(ssrf_err),
+            )
             return
 
         payload = {

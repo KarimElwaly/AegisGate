@@ -12,8 +12,7 @@ scanners:
     timeout_ms: 50
     on_timeout: flag
     config:
-      enable_tokenization: true
-      action_on_detect: flag
+      mode: reversible_tokenize
 
   - name: ner_pii_scanner
     enabled: true

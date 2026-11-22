@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import re
 
@@ -26,6 +28,10 @@ class PiiVault:
         prefix = get_settings().REDIS_KEY_PREFIX
         return f"{prefix}vault:{tenant_id}:{session_id or 'global'}"
 
+    def _get_forward_digest(self, original_value: str) -> str:
+        key = get_settings().AEGIS_SECRET_KEY.encode("utf-8")
+        return hmac.new(key, original_value.encode("utf-8"), hashlib.sha256).hexdigest()
+
     async def tokenize(
         self,
         tenant_id: str,
@@ -39,10 +45,11 @@ class PiiVault:
 
         entity_type = entity_type.upper().replace(" ", "_")
         session_key = self._get_session_key(tenant_id, session_id)
+        fwd_digest = self._get_forward_digest(original_value)
 
         try:
             redis = await get_redis_client()
-            forward_key = f"{session_key}:fwd:{original_value}"
+            forward_key = f"{session_key}:fwd:{fwd_digest}"
             existing_token = await redis.get(forward_key)
             if existing_token:
                 return str(existing_token)
@@ -74,13 +81,13 @@ class PiiVault:
                 self._local_reverse[sess] = {}
                 self._local_counts[sess] = {}
 
-            if original_value in self._local_forward[sess]:
-                return self._local_forward[sess][original_value]
+            if fwd_digest in self._local_forward[sess]:
+                return self._local_forward[sess][fwd_digest]
 
             cnt = self._local_counts[sess].get(entity_type, 0) + 1
             self._local_counts[sess][entity_type] = cnt
             token = f"<AEGIS_{entity_type}_{cnt}>"
-            self._local_forward[sess][original_value] = token
+            self._local_forward[sess][fwd_digest] = token
             # Encrypt in memory as well
             encrypted_val = json.dumps(get_key_provider().encrypt_dek(original_value))
             self._local_reverse[sess][token] = encrypted_val
@@ -123,6 +130,15 @@ class PiiVault:
                 orig = key_provider.decrypt_dek(orig_encrypted)
                 result = result.replace(token, orig)
             return result
+
+    async def detokenize(
+        self,
+        tenant_id: str,
+        session_id: str,
+        token: str,
+    ) -> str:
+        """Alias for rehydrate to restore original value from token."""
+        return await self.rehydrate(tenant_id, session_id, token)
 
     async def get_session_mappings(
         self,

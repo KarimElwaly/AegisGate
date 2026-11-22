@@ -13,6 +13,7 @@ from core.logger import get_logger
 from core.telemetry import record_kms_op
 
 logger = get_logger("core.crypto.kms")
+settings = get_settings()
 
 
 class KeyProvider(ABC):
@@ -139,23 +140,96 @@ class HashiCorpVaultKeyProvider(KeyProvider):
         self.vault_addr = vault_addr.rstrip("/")
         self.vault_token = vault_token
         self.transit_key_name = transit_key_name
-        self._fallback = fallback_local or LocalEnvKeyProvider(active_version="vault-fallback-v1")
+        self._fallback = fallback_local if fallback_local is not None else (LocalEnvKeyProvider() if getattr(settings, "AEGIS_ENV", "dev") != "prod" else None)
 
     def current_key_version(self) -> str:
         return "vault-v1"
 
     def encrypt_dek(self, plaintext: str) -> dict[str, Any]:
-        # Envelope encryption delegates to local fallback for test/dev environments
-        return self._fallback.encrypt_dek(plaintext)
+        import httpx
+
+        try:
+            b64_pt = base64.b64encode(plaintext.encode("utf-8")).decode("utf-8")
+            url = f"{self.vault_addr}/v1/transit/encrypt/{self.transit_key_name}"
+            headers = {"X-Vault-Token": self.vault_token}
+            with httpx.Client(timeout=0.5) as client:
+                resp = client.post(url, headers=headers, json={"plaintext": b64_pt})
+                if resp.status_code == 200:
+                    ct = resp.json()["data"]["ciphertext"]
+                    record_kms_op("encrypt_dek", "success")
+                    return {"version": "vault-v1", "nonce": "", "ciphertext": ct}
+                raise RuntimeError(f"Vault encrypt returned {resp.status_code}: {resp.text}")
+        except Exception as e:
+            if self._fallback:
+                logger.warning("Vault encrypt failed, falling back to local key provider", error=str(e))
+                return self._fallback.encrypt_dek(plaintext)
+            raise
 
     def decrypt_dek(self, encrypted_payload: dict[str, Any] | str) -> str:
-        return self._fallback.decrypt_dek(encrypted_payload)
+        import httpx
+
+        ct = encrypted_payload["ciphertext"] if isinstance(encrypted_payload, dict) else encrypted_payload
+        if not str(ct).startswith("vault:"):
+            if self._fallback:
+                return self._fallback.decrypt_dek(encrypted_payload)
+            return str(ct)
+
+        try:
+            url = f"{self.vault_addr}/v1/transit/decrypt/{self.transit_key_name}"
+            headers = {"X-Vault-Token": self.vault_token}
+            with httpx.Client(timeout=0.5) as client:
+                resp = client.post(url, headers=headers, json={"ciphertext": ct})
+                if resp.status_code == 200:
+                    b64_pt = resp.json()["data"]["plaintext"]
+                    record_kms_op("decrypt_dek", "success")
+                    return base64.b64decode(b64_pt).decode("utf-8")
+                raise RuntimeError(f"Vault decrypt returned {resp.status_code}: {resp.text}")
+        except Exception as e:
+            if self._fallback:
+                logger.warning("Vault decrypt failed, falling back to local key provider", error=str(e))
+                return self._fallback.decrypt_dek(encrypted_payload)
+            raise
 
     def sign_hmac(self, data: str) -> str:
-        return self._fallback.sign_hmac(data)
+        import httpx
+
+        try:
+            b64_input = base64.b64encode(data.encode("utf-8")).decode("utf-8")
+            url = f"{self.vault_addr}/v1/transit/hmac/{self.transit_key_name}/sha2-256"
+            headers = {"X-Vault-Token": self.vault_token}
+            with httpx.Client(timeout=0.5) as client:
+                resp = client.post(url, headers=headers, json={"input": b64_input})
+                if resp.status_code == 200:
+                    hmac_sig = resp.json()["data"]["hmac"]
+                    record_kms_op("sign_hmac", "success")
+                    return f"vault-v1:{hmac_sig}"
+                raise RuntimeError(f"Vault HMAC returned {resp.status_code}: {resp.text}")
+        except Exception as e:
+            if self._fallback:
+                logger.warning("Vault HMAC failed, falling back to local key provider", error=str(e))
+                return self._fallback.sign_hmac(data)
+            raise
 
     def verify_hmac(self, data: str, signature: str, key_version: str | None = None) -> bool:
-        return self._fallback.verify_hmac(data, signature, key_version)
+        import httpx
+
+        expected_sig = signature.split(":", 1)[1] if ":" in signature else signature
+        try:
+            b64_input = base64.b64encode(data.encode("utf-8")).decode("utf-8")
+            url = f"{self.vault_addr}/v1/transit/verify/{self.transit_key_name}/sha2-256"
+            headers = {"X-Vault-Token": self.vault_token}
+            with httpx.Client(timeout=0.5) as client:
+                resp = client.post(url, headers=headers, json={"input": b64_input, "hmac": expected_sig})
+                if resp.status_code == 200:
+                    valid = resp.json()["data"]["valid"]
+                    record_kms_op("verify_hmac", "success" if valid else "failed")
+                    return bool(valid)
+                raise RuntimeError(f"Vault verify returned {resp.status_code}: {resp.text}")
+        except Exception as e:
+            if self._fallback:
+                logger.warning("Vault verify failed, falling back to local key provider", error=str(e))
+                return self._fallback.verify_hmac(data, signature, key_version)
+            raise
 
 
 class AWSKMSKeyProvider(KeyProvider):
@@ -169,22 +243,78 @@ class AWSKMSKeyProvider(KeyProvider):
     ) -> None:
         self.key_id = key_id
         self.region_name = region_name
-        self._fallback = fallback_local or LocalEnvKeyProvider(active_version="aws-kms-v1")
+        self._fallback = fallback_local if fallback_local is not None else (LocalEnvKeyProvider() if getattr(settings, "AEGIS_ENV", "dev") != "prod" else None)
 
     def current_key_version(self) -> str:
         return "aws-kms-v1"
 
     def encrypt_dek(self, plaintext: str) -> dict[str, Any]:
-        return self._fallback.encrypt_dek(plaintext)
+        try:
+            import boto3
+            client = boto3.client("kms", region_name=self.region_name)
+            resp = client.encrypt(KeyId=self.key_id, Plaintext=plaintext.encode("utf-8"))
+            ct = base64.b64encode(resp["CiphertextBlob"]).decode("utf-8")
+            record_kms_op("encrypt_dek", "success")
+            return {"version": "aws-kms-v1", "nonce": "", "ciphertext": ct}
+        except Exception as e:
+            if self._fallback:
+                logger.warning("AWS KMS encrypt failed, falling back to local key provider", error=str(e))
+                return self._fallback.encrypt_dek(plaintext)
+            raise
 
     def decrypt_dek(self, encrypted_payload: dict[str, Any] | str) -> str:
-        return self._fallback.decrypt_dek(encrypted_payload)
+        try:
+            ct = encrypted_payload["ciphertext"] if isinstance(encrypted_payload, dict) else encrypted_payload
+            raw_ct = base64.b64decode(ct)
+            import boto3
+            client = boto3.client("kms", region_name=self.region_name)
+            resp = client.decrypt(CiphertextBlob=raw_ct)
+            record_kms_op("decrypt_dek", "success")
+            return resp["Plaintext"].decode("utf-8")
+        except Exception as e:
+            if self._fallback:
+                logger.warning("AWS KMS decrypt failed, falling back to local key provider", error=str(e))
+                return self._fallback.decrypt_dek(encrypted_payload)
+            raise
 
     def sign_hmac(self, data: str) -> str:
-        return self._fallback.sign_hmac(data)
+        try:
+            import boto3
+            client = boto3.client("kms", region_name=self.region_name)
+            resp = client.generate_mac(
+                KeyId=self.key_id,
+                Message=data.encode("utf-8"),
+                MacAlgorithm="HMAC_SHA_256",
+            )
+            sig = base64.b64encode(resp["Mac"]).decode("utf-8")
+            record_kms_op("sign_hmac", "success")
+            return f"aws-kms-v1:{sig}"
+        except Exception as e:
+            if self._fallback:
+                logger.warning("AWS KMS sign_hmac failed, falling back to local key provider", error=str(e))
+                return self._fallback.sign_hmac(data)
+            raise
 
     def verify_hmac(self, data: str, signature: str, key_version: str | None = None) -> bool:
-        return self._fallback.verify_hmac(data, signature, key_version)
+        expected_sig = signature.split(":", 1)[1] if ":" in signature else signature
+        try:
+            raw_sig = base64.b64decode(expected_sig)
+            import boto3
+            client = boto3.client("kms", region_name=self.region_name)
+            resp = client.verify_mac(
+                KeyId=self.key_id,
+                Message=data.encode("utf-8"),
+                MacAlgorithm="HMAC_SHA_256",
+                Mac=raw_sig,
+            )
+            valid = bool(resp.get("MacValid", False))
+            record_kms_op("verify_hmac", "success" if valid else "failed")
+            return valid
+        except Exception as e:
+            if self._fallback:
+                logger.warning("AWS KMS verify_hmac failed, falling back to local key provider", error=str(e))
+                return self._fallback.verify_hmac(data, signature, key_version)
+            raise
 
 
 _global_key_provider: KeyProvider | None = None
@@ -194,7 +324,23 @@ def get_key_provider() -> KeyProvider:
     """Returns the globally configured KeyProvider singleton."""
     global _global_key_provider
     if _global_key_provider is None:
-        _global_key_provider = LocalEnvKeyProvider()
+        settings = get_settings()
+        kms_provider_type = getattr(settings, "AEGIS_KMS_PROVIDER", "local").lower()
+        if kms_provider_type == "vault":
+            _global_key_provider = HashiCorpVaultKeyProvider(
+                vault_addr=getattr(settings, "VAULT_ADDR", "http://localhost:8200"),
+                vault_token=getattr(settings, "VAULT_TOKEN", "root"),
+                transit_key_name=getattr(settings, "VAULT_TRANSIT_KEY", "aegisgate-transit"),
+                fallback_local=None if settings.AEGIS_ENV == "prod" else LocalEnvKeyProvider(active_version="vault-fallback-v1"),
+            )
+        elif kms_provider_type == "aws":
+            _global_key_provider = AWSKMSKeyProvider(
+                key_id=getattr(settings, "AWS_KMS_KEY_ID", "alias/aegisgate-key"),
+                region_name=getattr(settings, "AWS_REGION", "us-east-1"),
+                fallback_local=None if settings.AEGIS_ENV == "prod" else LocalEnvKeyProvider(active_version="aws-kms-v1"),
+            )
+        else:
+            _global_key_provider = LocalEnvKeyProvider()
     return _global_key_provider
 
 

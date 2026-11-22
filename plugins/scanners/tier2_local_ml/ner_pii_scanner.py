@@ -113,12 +113,58 @@ class NerPiiScanner(BaseScanner):
                     )
 
         if detected_entities:
+            redaction_map: dict[str, str] = {}
+            mutated_content_dict: dict[str, Any] = {}
+
             # Reversible tokenization if requested
-            if cfg.tokenize_entities and request.session_id:
+            if cfg.tokenize_entities:
+                sess_id = request.session_id or "default_session"
                 try:
                     vault = get_pii_vault()
+                    # Map value -> token
+                    val_to_token: dict[str, str] = {}
                     for ent in detected_entities:
-                        await vault.tokenize(request.tenant_id, request.session_id, ent["value"], ent["entity_type"])
+                        raw_val = ent["value"]
+                        if raw_val not in val_to_token:
+                            token = await vault.tokenize(
+                                tenant_id=request.tenant_id,
+                                session_id=sess_id,
+                                entity_type=ent["entity_type"],
+                                original_value=raw_val,
+                            )
+                            val_to_token[raw_val] = token
+                            redaction_map[token] = raw_val
+
+                    def _replace_vals(text: str) -> str:
+                        res = text
+                        for raw_v, tok in val_to_token.items():
+                            res = res.replace(raw_v, tok)
+                        return res
+
+                    if request.content.trusted_instructions and isinstance(request.content.trusted_instructions, str):
+                        new_t = _replace_vals(request.content.trusted_instructions)
+                        if new_t != request.content.trusted_instructions:
+                            mutated_content_dict["trusted_instructions"] = new_t
+
+                    if request.content.untrusted_data:
+                        if isinstance(request.content.untrusted_data, str):
+                            new_u = _replace_vals(request.content.untrusted_data)
+                            if new_u != request.content.untrusted_data:
+                                mutated_content_dict["untrusted_data"] = new_u
+                        elif isinstance(request.content.untrusted_data, (dict, list)):
+                            raw_dump = json.dumps(request.content.untrusted_data)
+                            new_dump = _replace_vals(raw_dump)
+                            if new_dump != raw_dump:
+                                try:
+                                    mutated_content_dict["untrusted_data"] = json.loads(new_dump)
+                                except Exception:
+                                    mutated_content_dict["untrusted_data"] = new_dump
+
+                    if request.content.output_payload and isinstance(request.content.output_payload, str):
+                        new_o = _replace_vals(request.content.output_payload)
+                        if new_o != request.content.output_payload:
+                            mutated_content_dict["output_payload"] = new_o
+
                 except Exception as vault_err:
                     logger.warning("Failed to tokenize detected NER PII in vault", error=str(vault_err))
 
@@ -133,6 +179,8 @@ class NerPiiScanner(BaseScanner):
                     "entities": detected_entities[:10],
                 },
                 message=f"NER PII Scanner ({cfg.backend}): Found {len(detected_entities)} named entity PII instances",
+                mutated_content=mutated_content_dict if mutated_content_dict else None,
+                redaction_map=redaction_map if redaction_map else None,
             )
 
         return ScannerResult(scanner_name=self.name, tier=self.tier, status="pass")

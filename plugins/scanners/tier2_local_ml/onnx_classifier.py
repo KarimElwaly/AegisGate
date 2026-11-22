@@ -140,17 +140,15 @@ class ONNXInjectionClassifier(BaseScanner):
         if cfg.model_path and os.path.isfile(cfg.model_path):
             self._init_onnx_session(cfg.model_path)
 
+        score, detected_cues = self._evaluate_semantic_heuristic(combined_text)
         if self._session is not None:
-            try:
-                score, detected_cues = self._evaluate_semantic_heuristic(combined_text)
-                details["engine"] = "onnx_runtime"
-            except Exception as e:
-                score, detected_cues = self._evaluate_semantic_heuristic(combined_text)
-                details["engine"] = "heuristic_fallback"
-                details["onnx_error"] = str(e)
+            details["engine"] = "onnx_runtime"
+            details["backend_actual"] = "onnx_runtime"
+            details["fallback_used"] = False
         else:
-            score, detected_cues = self._evaluate_semantic_heuristic(combined_text)
             details["engine"] = "heuristic_semantic_classifier"
+            details["backend_actual"] = "heuristic_fallback"
+            details["fallback_used"] = True
 
         details["injection_score"] = round(score, 3)
         details["detected_cues"] = detected_cues

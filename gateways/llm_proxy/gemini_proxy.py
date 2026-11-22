@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 
+from core.auth.dependencies import AuthenticatedActor, get_pdp_actor
 from core.pipeline.orchestrator import PipelineOrchestrator, get_pipeline_orchestrator
 from gateways.llm_proxy.core_handler import execute_proxy_request
 from gateways.llm_proxy.translators.gemini_translator import GeminiProtocolTranslator
@@ -24,6 +25,7 @@ async def gemini_generate_content(
     x_aegis_actor_id: str = Header(default="gemini_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """Google Gemini generateContent Reverse Proxy.
     Enforces llm_input guardrails, sovereignty routing, token budgets, and output scanning.
@@ -45,6 +47,7 @@ async def gemini_generate_content(
         x_aegis_upstream_url=x_aegis_upstream_url,
         path_params={"model": model},
         force_stream=False,
+        actor=actor,
     )
 
 
@@ -62,6 +65,7 @@ async def gemini_stream_generate_content(
     x_aegis_actor_id: str = Header(default="gemini_client"),
     x_aegis_actor_role: str = Header(default="user"),
     x_aegis_upstream_url: str | None = Header(default=None),
+    actor: AuthenticatedActor = Depends(get_pdp_actor),
 ) -> Response:
     """Google Gemini streamGenerateContent Reverse Proxy with SSE streaming guard."""
     body = await request.json()
@@ -81,5 +85,6 @@ async def gemini_stream_generate_content(
         x_aegis_upstream_url=x_aegis_upstream_url,
         path_params={"model": model},
         force_stream=True,
+        actor=actor,
     )
 

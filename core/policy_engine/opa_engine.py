@@ -3,12 +3,14 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ConfigDict
 
+from core.config import get_settings
 from core.logger import get_logger
 from core.policy_engine.interface import PolicyEngineInterface
 from core.schemas.common import DecisionEnum, SeverityEnum
 from core.schemas.events import EvaluationRequest
 from core.schemas.policy import PolicyPackDefinition
 from core.schemas.verdicts import ScannerFinding, TriggeredRule
+from core.security.ssrf import SSRFProtectionError, validate_outbound_url
 
 logger = get_logger("core.policy_engine.opa")
 
@@ -49,6 +51,8 @@ class OPAPolicyEngine(PolicyEngineInterface):
         }
 
         try:
+            allow_sidecar = ["127.0.0.0/8", "::1/128"] if getattr(get_settings(), "AEGIS_ENV", "dev") != "prod" else None
+            await validate_outbound_url(self.config.opa_url, allowlist_cidrs=allow_sidecar, target_type="opa_engine")
             async with httpx.AsyncClient(timeout=timeout_sec) as client:
                 resp = await client.post(url, json=input_payload)
                 if resp.status_code == 200:

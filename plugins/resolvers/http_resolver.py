@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.logger import get_logger
 from core.redis_client import get_redis_client
@@ -16,15 +16,23 @@ logger = get_logger("plugins.resolvers.http")
 
 
 class HTTPContextResolverConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     enabled: bool = True
-    url_template: str = "http://localhost:8080/api/assets/{target_ip}"
+    url_template: str = Field(default="http://localhost:8080/api/assets/{target_ip}", alias="url")
     method: str = "GET"
     headers: dict[str, str] = Field(default_factory=dict)
     timeout_ms: int = 300
     cache_ttl_seconds: int = 300
     fallback_response: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_url_field(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "url" in data and "url_template" not in data:
+                data["url_template"] = data["url"]
+        return data
 
 
 class HTTPContextResolver(BaseContextResolver):
@@ -33,22 +41,43 @@ class HTTPContextResolver(BaseContextResolver):
     config_schema = HTTPContextResolverConfig
 
     def _format_template(self, template: str, request: EvaluationRequest) -> str:
-        # Extract variables from parameters or request
+        # Build comprehensive variable context including nested and flat variables
         params = request.action.parameters or {}
-        context_vars = {
+        full_context: dict[str, Any] = {
             "tenant_id": request.tenant_id,
             "session_id": request.session_id or "global",
+            "actor": request.actor.model_dump(),
             "actor_id": request.actor.id,
             "actor_role": request.actor.role,
+            "action": request.action.model_dump(),
             "action_name": request.action.name,
+            "content": request.content.model_dump(),
+            "metadata": request.metadata or {},
             **params,
         }
 
+        def _get_nested(root: Any, path: str) -> Any:
+            parts = path.split(".")
+            curr = root
+            for p in parts:
+                if isinstance(curr, dict):
+                    curr = curr.get(p)
+                elif hasattr(curr, p):
+                    curr = getattr(curr, p)
+                else:
+                    return None
+            return curr
+
         def repl(match):
             key = match.group(1)
-            return str(context_vars.get(key, ""))
+            val = _get_nested(full_context, key)
+            if val is not None:
+                return str(val)
+            if key in full_context:
+                return str(full_context[key])
+            return ""
 
-        return re.sub(r"\{([a-zA-Z0-9_]+)\}", repl, template)
+        return re.sub(r"\{([a-zA-Z0-9_\.]+)\}", repl, template)
 
     async def resolve(
         self,
