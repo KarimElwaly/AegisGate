@@ -66,23 +66,23 @@ AegisGate is a high-throughput, sub-15ms Policy Decision Point (PDP) designed to
 
 ### Key Performance & Governance Benchmarks
 - **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.65ms P95 latency** (0.47ms P50, 0.71ms P99) under real enterprise workloads (DoD target: < 15ms).
-- **Full-Stack End-to-End HTTP Latency:** Real web stack (FastAPI + Redis + SQLite/PostgreSQL + Full Orchestrator) delivers **26.32ms P95 latency** (21.30ms P50, 27.90ms P99; target: < 35ms).
-- **Universal Multi-Provider LLM Proxies:** Native, streaming-capable reverse proxies for:
+- **Full-Stack End-to-End HTTP Latency:** Real web stack (FastAPI + Redis + SQLite/PostgreSQL + Full Orchestrator) delivers **28.72ms P95 latency** (25.38ms P50, 29.89ms P99; target: < 35ms).
+- **Universal Multi-Provider LLM Proxies:** Native, streaming-capable reverse proxies with SSRF validation, PII rehydration, and exact token reconciliation for:
   - OpenAI Chat Completions (`/proxy/llm/v1/*`)
   - Anthropic Messages (`/proxy/anthropic/v1/messages`)
   - Google Gemini GenerateContent (`/proxy/gemini/v1beta/*`)
   - AWS Bedrock Converse & Converse-Stream (`/proxy/bedrock/model/{model_id}/converse`)
   - Azure OpenAI Deployments (`/proxy/azure/openai/deployments/{deployment}/chat/completions`)
-- **Realtime Voice & WebSocket Streaming Proxy:** Bidirectional WebSocket proxy (`/proxy/realtime/v1/ws`) with sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance.
+- **Realtime Voice & WebSocket Streaming Proxy:** Bidirectional WebSocket proxy (`/proxy/realtime/v1/ws`) with authenticated connection handshake, sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance.
 - **Multi-Turn Crescendo Defense:** Sliding-window conversational risk accumulation with exponential decay (`ConversationRiskTracker`), automatically exposing cumulative risk scores to Policy Packs.
-- **SQL AST Guard & Text-to-SQL Governance:** AST parser scanner (`SqlAstGuard`) enforcing SELECT-only mode, table/column denylists, automatic `LIMIT` and tenant isolation predicate injection.
-- **Enterprise KMS & Envelope Encryption:** Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records with key version tracking.
-- **Turnkey Regulatory Compliance:** Production policy packs for EU AI Act, HIPAA, PCI DSS, NIST AI RMF, Text-to-SQL, Agent Fleet, Log Analysis, and SOC Investigation with automated audit compliance reports (`GET /v1/audit/compliance-report`).
+- **SQL AST Guard & Text-to-SQL Governance:** AST parser scanner (`SqlAstGuard`) enforcing SELECT-only mode, table/column denylists, automatic `LIMIT` and tenant isolation predicate injection with parentheses safety.
+- **Enterprise KMS & Envelope Encryption:** Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest, zero plaintext PII in Redis key storage, and KMS HMAC signatures on audit records with key version tracking.
+- **Turnkey Regulatory Compliance:** 11 production reference policy packs for EU AI Act, HIPAA, PCI DSS, NIST AI RMF, Text-to-SQL, Agent Fleet, Log Analysis, and SOC Investigation with automated audit compliance reports (`GET /v1/audit/compliance-report`).
 - **Red-Team Injection Benchmark:** Achieves **100.0% prompt injection detection** (41/41 attacks caught) with **0.00% False Positive Rate** (0/41 benign logs flagged) on security evaluation corpora.
 - **Protocol-Aware MCP Anti-Rug-Pull:** Pinned SHA-256 schema hashing detects upstream drift, auto-quarantines tools, strips them from `tools/list`, and enforces monotonic tool scope attenuation.
 - **Stateful Session Taints:** Multi-step tool-chain governance backed by Redis sets prevents toxic composite actions (confidential read followed by external exfiltration).
 - **Strict Decoupling:** Core governance mechanics (`core/`) contain **zero domain-specific code**; all domain logic is strictly isolated in `plugins/` and `policy_packs/`.
-- **Tamper-Evident Ledger:** Every policy verdict is chained to its predecessor via `prev_hash` and signed with KMS HMAC, enabling continuous topological Merkle integrity checks.
+- **Tamper-Evident Ledger:** Every policy verdict is chained to its predecessor via `prev_hash` with `UniqueConstraint("tenant_id", "prev_hash")` to prevent forks, and signed with KMS HMAC, enabling continuous topological Merkle integrity checks.
 - **Comprehensive Documentation:** Full technical specifications in [ARCHITECTURE.md](ARCHITECTURE.md) and step-by-step showcase in [DEMO_GUIDE.md](DEMO_GUIDE.md).
 
 ---
@@ -258,6 +258,14 @@ NIST Artificial Intelligence Risk Management Framework (AI RMF 1.0) controls:
 - **Manage:** Multi-layer circuit breakers, budget limits, and delegation loop breakers.
 - **Govern:** Centralized multi-tenant policy enforcement, role-based tool access, and tamper-evident audit ledger.
 
+### 11. `text-to-sql-pack`
+Enterprise Text-to-SQL & Database Query Guardrails:
+- Strict SELECT-only execution mode (hard-blocks `DROP`, `DELETE`, `TRUNCATE`, `ALTER`, `GRANT`, `REVOKE`, `INSERT`, `UPDATE`).
+- Sensitive catalog and credential table denylist (`pg_shadow`, `pg_authid`, `system_secrets`, `users_credentials`).
+- Sensitive column blocking (`password_hash`, `secret_key`, `auth_token`, `ssn`, `credit_card`).
+- Automatic `LIMIT` clamping and mandatory tenant isolation predicate injection (`WHERE (user_where) AND tenant_id = '...'`).
+- Multi-turn Crescendo escalation on high cumulative query risk scores.
+
 ---
 
 ## 6. Developer SDKs & Ecosystem Adapters
@@ -372,9 +380,14 @@ AegisGate satisfies international AI governance, financial, and cybersecurity co
 
 ## 9. Testing & Quality Verification
 
-Run full test suite (124 tests across Phases 1–13 with 85% coverage on core):
+Run full test suite (148 tests across Phases 1–16 with 100% pass rate and >=85% core coverage):
 ```bash
 pytest --cov=core --cov-report=term-missing
+```
+
+Run Phase 16 Deep Security Remediation Suite:
+```bash
+pytest tests/redteam/test_phase16_remediation.py -v
 ```
 
 Run Red-Team Injection Benchmark:
@@ -387,28 +400,35 @@ Run Fast-Path P95 Latency Benchmark & E2E HTTP Latency Benchmark:
 pytest tests/benchmarks/ -v -s
 ```
 
-Run End-to-End System Verification:
+Validate All 11 Policy Packs:
 ```bash
-python scripts/verify_system.py
+Get-ChildItem -Path policy_packs -Recurse -Filter "policy.yaml" | ForEach-Object { python -m cli.aegisctl.main validate $_.FullName }
 ```
 
 Run TypeScript SDK Tests & Dashboard Build:
 ```bash
-npm --prefix sdks/typescript test
+npm --prefix sdks/typescript test && npm --prefix sdks/typescript run build
 npm --prefix dashboard run build
 ```
 
 ---
 
-## 10. Architecture Roadmap (Road to Universal Governance)
+## 10. Shipped Features & Universal Roadmap
 
-To scale into a global, universal guardrails and governance platform, the architectural evolution roadmap encompasses:
-1. **Universal Protocol Translation:** Native adapter endpoints for Anthropic Claude (Messages API), Google Gemini, AWS Bedrock, and Ollama.
-2. **Multimodal Guardrails:** OCR PII scanning on uploaded documents and vision-based adversarial injection detection.
-3. **Turnkey Framework Integrations:** Native 1-line callback handlers for LangChain/LangGraph, LlamaIndex, CrewAI, and Semantic Kernel.
-4. **Intelligent FinOps & Resiliency:** Semantic caching for instant 0ms responses, automatic provider failover, and dynamic model tier routing.
-5. **Enterprise IAM & Key Management:** SAML 2.0 / OIDC SSO (Okta, Microsoft Entra ID), SCIM provisioning, and Cloud KMS (AWS KMS, HashiCorp Vault).
-6. **Distributed Edge PDP:** Envoy WASM filters and sidecar daemons for zero-network-hop microsecond governance at the pod level.
+### Shipped in Phases 1–16 (Universal Platform v4.0):
+1. **Universal Multi-Protocol Proxies:** Native streaming reverse proxies for OpenAI, Anthropic Claude, Google Gemini, AWS Bedrock Converse, and Azure OpenAI with SSE credential leak abort and token reconciliation.
+2. **Realtime Voice & WebSocket Streaming Proxy:** Bidirectional WebSocket stream proxy (`/proxy/realtime/v1/ws`) with sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance.
+3. **Multi-Turn Crescendo Defense:** Sliding-window conversational risk accumulation with exponential decay (`ConversationRiskTracker`).
+4. **SQL AST Governance Scanner:** AST rewriting parser (`SqlAstGuard`) with `sqlglot` dialect support, SELECT-only mode, and safe WHERE-clause parenthesization.
+5. **Zero-Plaintext Key PII Vault & Enterprise KMS:** HMAC-SHA256 hashed Redis keys (`aegis:vault:pii_hash:{hash}`) with pluggable Vault Transit and AWS KMS providers.
+6. **Turnkey Regulatory Packs:** 11 production YAML policy packs (EU AI Act, HIPAA, PCI DSS, NIST AI RMF, Text-to-SQL, Agent Fleet, SOC, Log Analysis, etc.) with 1-click compliance export.
+7. **Ecosystem Adapters:** LangGraph, FastMCP, CrewAI, LlamaIndex, and Temporal activity adapters handling suspension, escalation, and parameter mutations.
+8. **GitOps Strict Validation:** `aegisctl validate` verifying scanner config schemas and valid pipeline stages.
+
+### Upcoming Architecture Roadmap:
+1. **Intelligent FinOps & Resiliency:** Semantic caching for instant 0ms responses, automatic provider failover, and dynamic model tier routing.
+2. **Enterprise IAM & Directory Sync:** SCIM 2.0 provisioning and Okta/Entra ID automated group-to-role mappings.
+3. **Distributed Edge PDP:** Envoy WASM filters and eBPF sidecar daemons for zero-network-hop microsecond governance at the pod level.
 
 For complete architectural deep-dives, see [ARCHITECTURE.md](ARCHITECTURE.md).
 

@@ -140,8 +140,14 @@ AegisGate provides two primary modes of integration:
 
 ### 4.1 Zero-Code Reverse Proxy Mode
 Any existing AI application integrates instantly without code rewrites by configuring base URLs:
-- **LLM Proxy (`/proxy/llm/v1/*`):** Targets OpenAI-compatible endpoints (`/chat/completions`). Intercepts inputs (`llm_input`) for prompt injection and PII leakage; monitors outputs (`llm_output`) via real-time chunk-buffered SSE streaming guards with mid-stream abort.
-- **MCP & Tool Gateway (`/proxy/mcp/*`, `/proxy/tools/{tool_name}`):** Intercepts Model Context Protocol JSON-RPC requests and REST tool invocations (`tool_pre_call`) to enforce RBAC, parameter boundary checks, loop detection, and HITL authorization before tool execution. Post-call returns (`tool_post_call`) are inspected for secondary injections and secrets before reaching the LLM context.
+- **Universal Multi-Provider LLM Proxies:** Native, streaming-capable reverse proxies with SSRF validation, PII rehydration, and exact token reconciliation for:
+  - **OpenAI Proxy (`/proxy/llm/v1/*`):** Targets OpenAI-compatible endpoints (`/chat/completions`, `/models`).
+  - **Anthropic Messages Proxy (`/proxy/anthropic/v1/messages`):** Native Anthropic Messages API with streaming events (`content_block_delta`, `message_delta`, `message_stop`) and `GUARDRAIL_INTERVENTION` abort handling.
+  - **Google Gemini Proxy (`/proxy/gemini/v1beta/models/{model}:generateContent`):** Native Gemini API with `contents`, `systemInstruction`, streaming candidates, and `finishReason: SAFETY` abort handling.
+  - **AWS Bedrock Converse Proxy (`/proxy/bedrock/model/{model_id}/converse`):** Native Converse & Converse-Stream API with `messages`, `system`, and `stopReason: guardrail_intervened` abort handling.
+  - **Azure OpenAI Proxy (`/proxy/azure/openai/deployments/{deployment}/chat/completions`):** Native Azure OpenAI Deployments API gateway.
+- **Realtime Voice & WebSocket Streaming Proxy (`/proxy/realtime/v1/ws`):** Intercepts bidirectional WebSocket event streams (OpenAI Realtime API / generic speech-to-speech agents), governing client input transcripts at `llm_input`, function calls at `tool_pre_call`, and assistant audio/text deltas at `llm_output` with sub-millisecond kill-switch cutoff.
+- **MCP & Tool Gateway (`/proxy/mcp/*`, `/proxy/tools/{tool_name}`):** Intercepts Model Context Protocol JSON-RPC requests and REST tool invocations (`tool_pre_call`) to enforce RBAC, parameter boundary checks, loop detection, and HITL authorization before tool execution. Post-call returns (`tool_post_call`) are inspected for secondary injections and secrets before reaching the LLM context. Protects upstream tool calls against outbound SSRF.
 
 ### 4.2 Direct Policy Decision Point (PDP) Mode
 For custom microservices and orchestrators requiring fine-grained control:
@@ -369,9 +375,9 @@ The `PIIVault` provides zero-knowledge sanitization for prompts and tool payload
                              ▼ (PIIScanner: Tokenize)
 [Sanitized Content] ──> "Host at <AEGIS_IP_01> reported by user <AEGIS_EMAIL_01>"
                              │
-                             ▼ (Redis Vault: Stored with Session TTL)
-                      Key: aegis:pii:{session_id}:tokens
-                      Map: { "<AEGIS_IP_01>": "10.0.1.55", ... }
+                             ▼ (Redis Vault: HMAC-SHA256 Hashed Keys with Session TTL)
+                      Key: aegis:vault:pii_hash:{hmac_sha256(cleartext)}
+                      Enc: Envelope-encrypted (AES-256-GCM / KMS DEK)
                              │
                              ▼ (LLM Inference / Upstream Processing)
                              │
@@ -381,8 +387,9 @@ The `PIIVault` provides zero-knowledge sanitization for prompts and tool payload
 
 1. **Detection:** Identifies IPv4/IPv6 addresses, email addresses, phone numbers, credit card numbers, SSNs, JWT tokens, AWS access keys, and PEM private keys.
 2. **Reversible Tokenization:** Replaces detected items with cryptographic pseudonyms (`<AEGIS_IP_01>`, `<AEGIS_EMAIL_01>`).
-3. **Session Vault:** Stores mapping in Redis under `aegis:pii:{session_id}` with an explicit TTL (default: 3600s).
-4. **Output Re-hydration:** On `llm_output`, authorized callers have tokens automatically re-hydrated back to cleartext.
+3. **Zero-Plaintext Key Storage:** Replaced raw cleartext lookup keys with HMAC-SHA256 hashed keys (`aegis:vault:pii_hash:{hash}`), guaranteeing zero plaintext exposure in Redis memory dumps or snapshots.
+4. **Enterprise KMS Envelope Encryption:** DEKs are envelope-encrypted via pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, or `AWSKMSKeyProvider`.
+5. **Output Re-hydration:** On `llm_output`, authorized callers have tokens automatically re-hydrated back to cleartext. Supported in streaming via `SSEStreamGuard` across split chunk boundaries.
 
 ---
 
@@ -439,6 +446,8 @@ $$R_i = \{\text{tenant\_id}, \text{trace\_id}, \text{stage}, \text{decision}, \t
 
 ### Verification & Compliance Exports
 - **`GET /v1/audit/verify?tenant_id=...`:** Performs topological Merkle chain traversal. If any record payload, timestamp, or hash was altered in the database, verification reports the exact broken record index.
+- **Audit Chain Fork Prevention:** Enforces relational `UniqueConstraint("tenant_id", "prev_hash", name="uq_audit_records_tenant_prev_hash")` in database schema (Alembic migration `0009_phase16_audit_chain_unique`), paired with per-tenant `asyncio.Lock` serialization in `AuditLedger` and optimistic retry loops on `IntegrityError`.
+- **KMS HMAC Signatures:** Each record header includes a cryptographic signature `kms_signature` signed by the active KMS provider (`vault-v1`, `aws-kms-v1`, `local-v1`), providing dual-layer mathematical non-repudiation.
 - **Regulatory Tagging:** Tags events with standards compliance labels (`SOC2-CC6.1`, `NIST-AI-RMF-GOVERN`, `OWASP-LLM01`, `ISO-42001`, `EU-AI-ACT`).
 - **Export Formats:** Generates compliance-ready **JSONL** and **CSV** audit bundles with cryptographic signatures.
 
@@ -476,11 +485,35 @@ AegisGate enables zero-risk policy testing against production traffic:
 [Upstream LLM Providers]   [Tool & MCP Servers]         [Core Engine Pipeline]
 ```
 
-### 13.1 SSE Streaming Guardrails (`gateways/llm_proxy/streaming.py`)
-Streaming LLM responses pass through `SSEStreamGuard`, which maintains a sliding text buffer to detect sensitive data or jailbreak indicators spanning across token chunk boundaries. If a violation is detected mid-stream, the connection is aborted immediately and replaced with an inline security notice.
+### 13.1 Universal Multi-Protocol LLM Proxies (`gateways/llm_proxy/`)
+AegisGate provides protocol-native reverse proxies for all leading model providers:
+- **Unified Pipeline Handler (`core_handler.py`):** Canonicalizes provider requests, validates caller authentication/virtual keys, validates `x-aegis-upstream-url` with SSRF protection, routes inputs through the tiered governance pipeline, mutates/tokenizes prompts, forwards to upstream APIs, and streams responses with PII rehydration.
+- **Provider Protocol Translators:**
+  - `OpenAIProtocolTranslator` (`/proxy/llm/v1/*`): Translates Chat Completions payloads, models, and usage statistics.
+  - `AnthropicProtocolTranslator` (`/proxy/anthropic/v1/messages`): Canonicalizes Anthropic system prompts and message trees, handles tool schemas, and formats responses.
+  - `GeminiProtocolTranslator` (`/proxy/gemini/v1beta/*`): Translates `contents` and `systemInstruction` objects, candidate finish reasons, and token counts.
+  - `BedrockProtocolTranslator` (`/proxy/bedrock/model/{model_id}/converse`): Handles Converse API `messages`, `system`, inference configs, and Converse-Stream chunks.
+  - `AzureOpenAIProtocolTranslator` (`/proxy/azure/openai/*`): Extends OpenAI translator with deployment path resolution and Azure API versions.
 
-### 13.2 MCP & HTTP Tool Gateway (`gateways/mcp_tool_gateway/tool_gateway.py`)
-Standardizes Model Context Protocol JSON-RPC 2.0 (`tools/call`) and REST tool requests into canonical `EvaluationRequest` events, validating permissions, parameters, and rate budgets prior to execution.
+### 13.2 Multi-Protocol SSE Streaming Guardrails (`gateways/llm_proxy/streaming.py`)
+Streaming LLM responses pass through `SSEStreamGuard`, which maintains a sliding text buffer to detect sensitive data, API keys (`sk-ant-...`, `AKIA...`), or jailbreak indicators spanning across token chunk boundaries.
+- **Protocol-Native Stream Abort:**
+  - **OpenAI:** Injects synthetic final chunk with `finish_reason: "content_filter"`, emits security notice, and terminates with `data: [DONE]`.
+  - **Anthropic:** Emits `event: content_block_delta` security warning, `event: message_delta` with `{"stop_reason": "GUARDRAIL_INTERVENTION"}`, and closes with `event: message_stop`.
+  - **Gemini:** Emits candidate chunk with `finishReason: "SAFETY"`.
+  - **Bedrock:** Emits `contentBlockDelta` with `stopReason: "guardrail_intervened"`.
+- **Exact Token Reconciliation:** Extracts stream usage chunks from upstream emitters and reconciles exact token burn against Redis session budgets.
+
+### 13.3 Realtime Voice & WebSocket Streaming Proxy (`gateways/realtime_proxy/ws_proxy.py`)
+Bidirectional WebSocket proxy mounted at `/proxy/realtime/v1/ws` and `/proxy/realtime/v1`:
+- Authenticates incoming connections via `authenticate_credentials()` (query param or headers).
+- Intercepts input transcripts (`conversation.item.create`, `client_transcript`) at `LLM_INPUT`.
+- Intercepts tool calls (`function_call_arguments.done`) at `TOOL_PRE_CALL`.
+- Intercepts assistant deltas (`response.audio_transcript.delta`, `response.text.delta`) at `LLM_OUTPUT`.
+- Enforces instant sub-millisecond kill-switch cutoff (WebSocket close code 1008).
+
+### 13.4 MCP & HTTP Tool Gateway (`gateways/mcp_tool_gateway/tool_gateway.py`)
+Standardizes Model Context Protocol JSON-RPC 2.0 (`tools/call`) and REST tool requests into canonical `EvaluationRequest` events, validating actor credentials (`get_pdp_actor`), tool parameters, rate budgets, and Anti-Rug-Pull schema pinning prior to execution. Dispatches to upstream servers are wrapped with outbound SSRF validation. Enforces JSON-RPC error codes `-32003` (`SUSPEND_FOR_APPROVAL`) and `-32004` (`ESCALATE`).
 
 ---
 
@@ -527,7 +560,7 @@ The UI dynamically inspects the Pydantic `ConfigSchema` of any registered plugin
 
 ## 16. Reference Pluggable Policy Packs
 
-AegisGate ships with six production-ready YAML Policy Packs that run on the exact same untouched `core/`:
+AegisGate ships with 11 production-ready YAML Policy Packs that run on the exact same untouched `core/`:
 
 | Policy Pack ID | Domain Focus | Key Rules & Capabilities |
 |:---|:---|:---|
@@ -537,6 +570,11 @@ AegisGate ships with six production-ready YAML Policy Packs that run on the exac
 | **`soc-investigation-pack`** | SOC Containment | Dynamic CMDB context enrichment, domain controller protection block, single approval for standard assets, dual 4-eyes approval for Tier-0 assets, citation grounding. |
 | **`rag-copilot-pack`** | Enterprise Copilot | Chunk-level metadata ACL clearance enforcement (`rag_acl_guard`), memory write poisoning block (`memory_poison_guard`), NER PII redaction, and toxic tool-chain prevention via session taints. |
 | **`customer-support-voice-pack`** | Voice & Support | Real-time semantic topic boundary enforcement (`topic_guard`), toxicity and harassment classifier (`safety_toxicity_scanner`), sub-5ms Tier-1/Tier-2 fast path for interactive voice sessions. |
+| **`eu-ai-act-pack`** | EU AI Act (2024/1689) | Article 5 prohibited practice blocking (social scoring, biometric categorization), Article 14 mandatory human oversight (HITL), Article 12 audit logging. |
+| **`hipaa-pack`** | HIPAA Healthcare | Reversible tokenization of 18 PHI identifiers via KMS-backed vault, strict `local_only` sovereignty routing, exfiltration tool blocks. |
+| **`pci-dss-pack`** | PCI DSS v4.0 | Zero-tolerance Primary Account Number (PAN) detection with Luhn check, CVV/CVC blocking, dual-approval HITL for payment dispatch. |
+| **`nist-ai-rmf-pack`** | NIST AI RMF 1.0 | Map (asset discovery), Measure (injection/toxicity/NLI scoring), Manage (circuit breakers, budgets), Govern (centralized policy packs). |
+| **`text-to-sql-pack`** | Text-to-SQL Governance | Strict SELECT-only execution mode, sensitive catalog denylist (`pg_shadow`, `system_secrets`), automatic LIMIT clamping and tenant isolation injection (`WHERE (user_where) AND tenant_id = '...'`). |
 
 ---
 
@@ -579,6 +617,14 @@ Relational persistence uses SQLAlchemy 2.0 models with Alembic migrations:
           ▼
 [0007_phase13_kms_signatures]
   └── audit_records (added kms_signature column for pluggable KMS HMAC verification)
+          │
+          ▼
+[0008_phase14_audit_key_version]
+  └── audit_records (added key_version column for KMS key rotation tracking)
+          │
+          ▼
+[0009_phase16_audit_chain_unique]
+  └── audit_records (added UniqueConstraint("tenant_id", "prev_hash") to prevent hash forks)
 ```
 
 ---
@@ -627,17 +673,18 @@ Located at `deploy/helm/aegisgate/`:
 
 | Requirement / Milestone | Target Metric | Measured Result | Status |
 |:---|:---|:---|:---:|
-| **Automated Pytest Suite** | 100% Passing | **124 / 124 Passed (100%)** | **PASS** |
-| **Core Test Coverage** | $\ge 85\%$ | **85% across 3,040 lines in `core/`** | **PASS** |
-| **Tier-1 P95 Evaluation Latency** | $< 15.0\text{ ms}$ | **0.50 ms** ($P_{50} = 0.38\text{ ms}$, $P_{99} = 0.53\text{ ms}$) | **PASS** |
-| **Full E2E HTTP P95 Latency** | $< 35.0\text{ ms}$ | **28.94 ms** ($P_{50} = 21.51\text{ ms}$, $P_{99} = 34.22\text{ ms}$) | **PASS** |
+| **Automated Pytest Suite** | 100% Passing | **148 / 148 Passed (100%)** | **PASS** |
+| **Core Test Coverage** | $\ge 85\%$ | **85% across all statements in `core/`** | **PASS** |
+| **Tier-1 P95 Evaluation Latency** | $< 15.0\text{ ms}$ | **0.65 ms** ($P_{50} = 0.47\text{ ms}$, $P_{99} = 0.71\text{ ms}$) | **PASS** |
+| **Full E2E HTTP P95 Latency** | $< 35.0\text{ ms}$ | **28.72 ms** ($P_{50} = 25.38\text{ ms}$, $P_{99} = 29.89\text{ ms}$) | **PASS** |
 | **Red-Team Injection Detection** | $\ge 95\%$ | **100.0% (41 / 41 attacks caught)** | **PASS** |
 | **Benign Security Log False Positives** | $< 2.0\%$ | **0.00% (0 / 41 false alarms)** | **PASS** |
-| **Control Plane UI Build** | 0 TypeScript Errors | **Clean Vite Build (dist/ packaged in 3.33s)** | **PASS** |
+| **Phase 16 Remediation Suite** | 100% Passing | **10 / 10 Verified Security Fixes** | **PASS** |
+| **Reference Policy Packs** | 0 Schema/Stage Errors | **11 / 11 Packs Validated via `aegisctl`** | **PASS** |
+| **Control Plane UI Build** | 0 TypeScript Errors | **Clean Vite Build (dist/ packaged in 10.84s)** | **PASS** |
 | **End-to-End System Workflows** | 16 / 16 Scenarios | **16 / 16 Verified (100%)** | **PASS** |
-| **Dashboard TypeScript & Vite Build** | Zero Errors | **Built cleanly (276 kB bundle)** | **PASS** |
-| **TypeScript SDK Typecheck & Tests** | Zero Errors | **Clean compilation & 100% passing tests** | **PASS** |
-| **Architectural Purity** | Zero Domain in Core | **100% compliant (Alembic only, 0001-0007)** | **PASS** |
+| **TypeScript SDK Typecheck & Tests** | Zero Errors | **Clean compilation & 100% passing tests (3/3)** | **PASS** |
+| **Architectural Purity** | Zero Domain in Core | **100% compliant (Alembic only, 0001-0009)** | **PASS** |
 
 ---
 

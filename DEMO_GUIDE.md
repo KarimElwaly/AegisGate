@@ -27,22 +27,23 @@ python scripts/demo_showcase.py --live
 
 ---
 
-## 2. The 12 Enterprise Use Cases Walkthrough
+## 2. The 21 Enterprise Use Cases Walkthrough
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       AEGISGATE USE CASE TAXONOMY                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  1. Zero-Code OpenAI LLM Proxy       │  9. Untrusted Log Injection Scanner  │
-│  2. Reversible PII & Secret Vault    │ 10. 5-Tier Emergency Kill Switch     │
-│  3. Zero-Code MCP & Tool Gateway     │ 11. Cryptographic Hash Audit Ledger  │
-│  4. Sub-15ms Direct PDP REST API     │ 12. Shadow Mode & Replay Simulator   │
-│  5. Python SDK & @governed_tool      │ 13. Protocol-Aware MCP Anti-Rug-Pull │
-│  6. SOC Pack: Domain Controller Block│ 14. Stateful Session Taint Chains    │
-│  7. SOC Pack: Single & Dual HITL     │ 15. Hierarchical RAG ACL Clearance   │
-│  8. Multi-Agent Runaway Loop Breaker │ 16. Shadow AI & Asset Auto-Discovery │
-│                                      │ 17. Universal Anthropic/Gemini Proxy │
-│                                      │ 18. Regulatory Compliance Reporting  │
+│  1. Zero-Code OpenAI LLM Proxy       │ 12. Shadow Mode & Replay Simulator   │
+│  2. Reversible PII & Secret Vault    │ 13. Protocol-Aware MCP Anti-Rug-Pull │
+│  3. Zero-Code MCP & Tool Gateway     │ 14. Stateful Session Taint Chains    │
+│  4. Sub-15ms Direct PDP REST API     │ 15. Hierarchical RAG ACL Clearance   │
+│  5. Python SDK & @governed_tool      │ 16. Shadow AI & Asset Auto-Discovery │
+│  6. SOC Pack: Domain Controller Block│ 17. Universal Anthropic/Gemini/AWS   │
+│  7. SOC Pack: Single & Dual HITL     │ 18. Regulatory Compliance Reporting  │
+│  8. Multi-Agent Runaway Loop Breaker │ 19. Realtime Voice & WS Stream Proxy │
+│  9. Untrusted Log Injection Scanner  │ 20. Text-to-SQL AST Injection Guard  │
+│ 10. 5-Tier Emergency Kill Switch     │ 21. Multi-Turn Crescendo Defense     │
+│ 11. Cryptographic Hash Audit Ledger  │                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -398,13 +399,80 @@ curl -X PATCH http://127.0.0.1:8088/v1/discovery/assets/ast-001 \
   -d '{"governance_status": "governed", "risk_level": "low"}'
 ```
 
-### Use Case 17: Universal Multi-Provider Proxies — Native Anthropic & Gemini Gateways
-- **Scenario:** An organization standardizes on Anthropic Claude 3.5 Sonnet and Google Gemini 1.5 Pro without wanting to modify client library integrations.
-- **Defense Mechanism:** Intercepts traffic at `/proxy/anthropic/v1/messages` and `/proxy/gemini/v1beta/models/{model}:generateContent`. Protocol translators canonicalize requests into `EvaluationRequest` events, execute PII tokenization and security guardrails, forward upstream, and translate responses (and SSE stream chunks) back to native client format while reconciling exact usage tokens.
+### Use Case 17: Universal Multi-Provider Proxies — Native Anthropic, Gemini, AWS Bedrock & Azure Gateways
+- **Scenario:** An enterprise standardizes on diverse multi-cloud LLMs (Anthropic Claude 3.5 Sonnet, Google Gemini 1.5 Pro, AWS Bedrock Converse, Azure OpenAI) without modifying downstream application SDKs.
+- **Defense Mechanism:** Intercepts traffic at native protocol endpoints:
+  - `/proxy/anthropic/v1/messages`
+  - `/proxy/gemini/v1beta/models/{model}:generateContent`
+  - `/proxy/bedrock/model/{model_id}/converse`
+  - `/proxy/azure/openai/deployments/{deployment}/chat/completions`
+- Protocol translators canonicalize requests into `EvaluationRequest` events, validate outbound SSRF, tokenize PII, forward upstream, and translate responses (and SSE stream chunks) back to native client format while reconciling exact usage tokens.
+- **cURL Invocation (Anthropic Messages API):**
+```bash
+curl -X POST http://127.0.0.1:8088/proxy/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "X-Aegis-Tenant-Id: acme-corp" \
+  -H "X-Aegis-Policy-Pack: base-enterprise" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Analyze patient record for john.doe@clinic.org connecting from 10.0.1.20."}
+    ]
+  }'
+```
+- **Mid-Stream Secret Abort:** When a mid-stream credential leak (`sk-ant-api03-...`, `AKIA...`) occurs, `SSEStreamGuard` immediately terminates the stream with a protocol-native event (`stop_reason: GUARDRAIL_INTERVENTION` on Anthropic, `finishReason: SAFETY` on Gemini, `stopReason: guardrail_intervened` on Bedrock).
+
+---
 
 ### Use Case 18: Turnkey Regulatory Compliance Evidence Packages
-- **Scenario:** Compliance and legal teams require mathematical proof of AI safety controls for EU AI Act, HIPAA, PCI DSS, or NIST AI RMF audits.
-- **Defense Mechanism:** `GET /v1/audit/compliance-report?framework={eu-ai-act|hipaa|pci-dss|nist-ai-rmf}` generates an audit evidence package containing active policy pack versions, rule enforcement tallies, HITL approver records, Shadow AI exceptions, and a live cryptographic hash-chain integrity certificate.
+- **Scenario:** Legal and compliance auditors require continuous mathematical proof of AI safety controls for EU AI Act, HIPAA, PCI DSS, or NIST AI RMF audits.
+- **Defense Mechanism:** `GET /v1/audit/compliance-report?framework={eu-ai-act|hipaa|pci-dss|nist-ai-rmf}&format={markdown|json}` generates an audit evidence package containing active policy pack versions, rule enforcement tallies, HITL approver records, Shadow AI exceptions, and a live cryptographic hash-chain integrity certificate.
+- **Audit Export Command:**
+```bash
+curl -X GET "http://127.0.0.1:8088/v1/audit/compliance-report?tenant_id=acme-corp&framework=eu-ai-act&format=markdown"
+```
+
+---
+
+### Use Case 19: Realtime Voice & WebSocket Streaming Proxy
+- **Scenario:** Interactive customer service and voice agents communicate over bidirectional WebSockets (e.g. OpenAI Realtime API). Malicious actors attempt voice-prompt injections or unauthorized tool executions mid-session.
+- **Defense Mechanism:** Intercepts streams at `/proxy/realtime/v1/ws`. Governs client input transcripts at `llm_input`, tool calls (`function_call_arguments.done`) at `tool_pre_call`, and assistant audio/text deltas at `llm_output`. Provides instant sub-millisecond kill-switch termination (WebSocket close code 1008).
+- **WebSocket Verification:**
+```bash
+# Connect with Virtual API Key or Bearer Token
+wscat -c "ws://127.0.0.1:8088/proxy/realtime/v1/ws?token=aegis_live_acme_production"
+```
+
+---
+
+### Use Case 20: Text-to-SQL Governance & SQL AST Injection Guard
+- **Scenario:** Autonomous database query agents generate dynamic SQL. Attackers trick the agent into running destructive statements (`DROP TABLE users`, `DELETE FROM audit`) or querying sensitive credential tables (`pg_shadow`).
+- **Defense Mechanism:** `SqlAstGuard` parses the Abstract Syntax Tree using `sqlglot` with dialect safety. It enforces SELECT-only execution mode, blocks sensitive tables/columns, clamps `LIMIT`, and injects tenant isolation predicates with safe WHERE-clause parenthesization (`WHERE (user_where) AND tenant_id = '...'`).
+- **cURL Invocation:**
+```bash
+curl -X POST http://127.0.0.1:8088/v1/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "acme-corp",
+    "stage": "tool_pre_call",
+    "policy_pack_id": "text-to-sql-pack",
+    "actor": {"id": "sql-agent", "role": "analyst"},
+    "action": {
+      "name": "execute_query",
+      "parameters": {"sql": "SELECT * FROM orders WHERE status = '\''pending'\'' OR 1=1; DROP TABLE audit_records;"}
+    }
+  }'
+# Verdict: DENY (Destructive SQL mutation blocked by sql_ast_guard)
+```
+
+---
+
+### Use Case 21: Multi-Turn Crescendo Defense — Sliding Conversational Risk
+- **Scenario:** An adversarial attacker attempts a multi-turn Crescendo jailbreak: each individual prompt appears benign, but progressively shifts context across turns toward policy violation.
+- **Defense Mechanism:** `ConversationRiskTracker` tracks rolling risk across sessions with exponential decay:
+  $$\text{CumulativeRisk}_t = \text{Decay} \times \text{CumulativeRisk}_{t-1} + \text{TurnRisk}_t$$
+  When cumulative risk reaches the configured threshold (e.g., 0.70), policy packs automatically escalate to `SUSPEND_FOR_APPROVAL` or `DENY`.
 
 ---
 
@@ -412,36 +480,40 @@ curl -X PATCH http://127.0.0.1:8088/v1/discovery/assets/ast-001 \
 
 Open **`http://localhost:3088`** in your browser to demonstrate the visual control plane:
 
-1. **Overview & Telemetry (`/`):**
-   - Point out live PDP connection status beacon (`PDP Connected: 8088`).
-   - Showcase real-time KPIs: Total Evaluations, Threat Interceptions, Active Guardrails, and Sub-millisecond P95 latency sparklines.
+1. **Overview & Real-Time Telemetry (`/`):**
+   - Live PDP connection status beacon (`PDP Engine Online (7.86ms P95)`).
+   - Multi-tenant switcher (`default`, `tenant-fleet`, `tenant-soc`, `tenant-logs`).
+   - Real-time KPIs: Total Evaluated (1,988+), P95 Latency (7.86ms), Threat Neutralization Rate (7.1%), Active HITL Queue.
+   - Sub-15ms Latency Tiers (Tier-1: 0.23ms, Tier-2: 22.4ms, Tier-3: 180ms) and live threat feed.
 2. **Policy Pack Studio (`/policies`):**
-   - Select `soc-investigation-pack`.
-   - Show the editable YAML DSL editor and the side-by-side version diff viewer.
+   - Multi-pack selector (`soc-investigation-pack`, `agent-fleet-pack`, `log-analysis-pack`, `base-enterprise`, `text-to-sql-pack`, etc.).
+   - Syntax-highlighted YAML DSL editor with line numbers and real-time schema validation.
    - Click **+ New Draft Policy Pack** to open the draft generation modal with starter templates.
-   - Click **Save & Publish** to show instant hot-reloading without service restarts.
+   - Click **Version Diff** to inspect visual side-by-side colorized diffing of policy changes.
+   - Click **Save & Publish** to show instant hot-reloading into the running PDP engine without downtime.
 3. **Multi-Tenancy & Virtual Keys (`/tenants`):**
-   - View active tenant scope, virtual key metrics, and total budget caps.
+   - View active tenant scope, virtual key usage, and total dollar/token budget caps.
    - Click **Issue Virtual API Key** to mint scoped `ag_live_...` credentials with model allowlists.
-4. **MCP Security & Shadow Discovery (`/discovery`):**
-   - Inspect pinned MCP tools, schema SHA-256 hashes, and Anti-Rug-Pull quarantine status.
-   - Switch to **Shadow AI Assets** tab to view auto-discovered models, rogue tools, and approve/block them.
+4. **MCP Security & Shadow AI Discovery (`/discovery`):**
+   - Inspect pinned MCP tools (`internal-db-mcp`, `analytics-mcp`), schema SHA-256 hashes, and Anti-Rug-Pull quarantine status.
+   - Switch to **Shadow AI Assets** tab to view auto-discovered models and tools with 1-click govern/block controls.
 5. **Plugin & Scanner Registry (`/plugins`):**
-   - Showcase Tier-1, Tier-2, and Tier-3 scanners.
-   - Click **Configure** on any scanner to demonstrate dynamic Pydantic form generation with JSON schema validation.
+   - Showcase all 18 registered scanners across Tier 1 (deterministic regex, entropy, PII vault), Tier 2 (local ML ONNX classifier, NER, topic guard), and Tier 3 (LLM judge), plus 3 context resolvers.
+   - Click **Configure** on any scanner to demonstrate dynamic Pydantic form generation with live JSON payload preview.
 6. **HITL Decision Room (`/hitl`):**
-   - Review pending authorization requests.
+   - Review pending authorization requests with risk scores and expiration timers.
+   - Inspect ticket detail drawer (e.g. `isolate_host`, dual 4-eyes approval requirements).
    - Edit the action parameters directly in the textarea (parameter override).
-   - Click **Authorize & Resume Tool** to resume execution.
+   - Click **Authorize & Resume Tool** to record the approver role and resume tool execution.
 7. **Emergency Circuit Breakers (`/kill-switch`):**
-   - Click **TRIP TENANT** or **TRIP TOOL**.
-   - Input the mandatory audit justification reason and trip the breaker.
-   - Show the active breaker badge and click **DISENGAGE** to restore normal operation.
+   - Test 5 granular scopes: Level 0 (Global), Level 1 (Tenant), Level 2 (Workspace), Level 3 (Agent), Level 4 (Tool).
+   - Click **TRIP TENANT**, enter mandatory audit justification, and confirm breaker engagement.
+   - Show the active breaker badge, verify sub-millisecond PDP denial, and click **DISENGAGE** to restore normal operation.
 8. **Forensic Audit & Simulator (`/audit`):**
-   - Click **Verify Ledger Continuity** to trigger cryptographic chain traversal and display the green `Intact` badge.
-   - Click **Export JSONL / CSV** to download compliance records.
-   - Click **Open Replay Simulator** and run historical replay simulations.
-   - Click one of the **1-Click Compliance Report** buttons (EU AI Act, HIPAA, PCI DSS, NIST AI RMF) to export signed regulatory evidence reports.
+   - Click **Verify Ledger Continuity** to trigger cryptographic Merkle chain traversal and display the green `Intact (14 records verified)` badge.
+   - Click **Export JSONL / CSV** to download cryptographically verifiable audit logs.
+   - Click **Open Replay Simulator**, select a policy pack, and click **Run Simulation Replay** to project Concordance Rate and replayed events.
+   - Click the **1-Click Compliance Report** buttons (EU AI Act, HIPAA, PCI DSS, NIST AI RMF) to export signed regulatory evidence packages.
 
 ---
 
