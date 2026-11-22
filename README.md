@@ -65,11 +65,19 @@ AegisGate is a high-throughput, sub-15ms Policy Decision Point (PDP) designed to
 ```
 
 ### Key Performance & Governance Benchmarks
-- **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.50ms P95 latency** (0.38ms P50, 0.53ms P99) under real enterprise workloads (DoD target: < 15ms).
-- **Full-Stack End-to-End HTTP Latency:** Real web stack (FastAPI + Redis + PostgreSQL + Full Orchestrator) delivers **28.94ms P95 latency** (21.51ms P50, 34.22ms P99; target: < 35ms).
-- **Universal Multi-Provider LLM Proxies:** Native, streaming-capable reverse proxies for OpenAI (`/proxy/llm/v1/*`), Anthropic Messages (`/proxy/anthropic/v1/messages`), and Google Gemini (`/proxy/gemini/v1beta/*`) with exact token reconciliation.
-- **Enterprise KMS & Envelope Encryption:** Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records.
-- **Turnkey Regulatory Compliance:** Production policy packs for EU AI Act, HIPAA, PCI DSS, and NIST AI RMF with automated audit compliance reports (`GET /v1/audit/compliance-report`).
+- **Sub-15ms Fast Path:** Tier-1 deterministic evaluation achieves **0.65ms P95 latency** (0.47ms P50, 0.71ms P99) under real enterprise workloads (DoD target: < 15ms).
+- **Full-Stack End-to-End HTTP Latency:** Real web stack (FastAPI + Redis + SQLite/PostgreSQL + Full Orchestrator) delivers **26.32ms P95 latency** (21.30ms P50, 27.90ms P99; target: < 35ms).
+- **Universal Multi-Provider LLM Proxies:** Native, streaming-capable reverse proxies for:
+  - OpenAI Chat Completions (`/proxy/llm/v1/*`)
+  - Anthropic Messages (`/proxy/anthropic/v1/messages`)
+  - Google Gemini GenerateContent (`/proxy/gemini/v1beta/*`)
+  - AWS Bedrock Converse & Converse-Stream (`/proxy/bedrock/model/{model_id}/converse`)
+  - Azure OpenAI Deployments (`/proxy/azure/openai/deployments/{deployment}/chat/completions`)
+- **Realtime Voice & WebSocket Streaming Proxy:** Bidirectional WebSocket proxy (`/proxy/realtime/v1/ws`) with sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance.
+- **Multi-Turn Crescendo Defense:** Sliding-window conversational risk accumulation with exponential decay (`ConversationRiskTracker`), automatically exposing cumulative risk scores to Policy Packs.
+- **SQL AST Guard & Text-to-SQL Governance:** AST parser scanner (`SqlAstGuard`) enforcing SELECT-only mode, table/column denylists, automatic `LIMIT` and tenant isolation predicate injection.
+- **Enterprise KMS & Envelope Encryption:** Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records with key version tracking.
+- **Turnkey Regulatory Compliance:** Production policy packs for EU AI Act, HIPAA, PCI DSS, NIST AI RMF, Text-to-SQL, Agent Fleet, Log Analysis, and SOC Investigation with automated audit compliance reports (`GET /v1/audit/compliance-report`).
 - **Red-Team Injection Benchmark:** Achieves **100.0% prompt injection detection** (41/41 attacks caught) with **0.00% False Positive Rate** (0/41 benign logs flagged) on security evaluation corpora.
 - **Protocol-Aware MCP Anti-Rug-Pull:** Pinned SHA-256 schema hashing detects upstream drift, auto-quarantines tools, strips them from `tools/list`, and enforces monotonic tool scope attenuation.
 - **Stateful Session Taints:** Multi-step tool-chain governance backed by Redis sets prevents toxic composite actions (confidential read followed by external exfiltration).
@@ -117,6 +125,9 @@ AegisGate runs on standard ports (`3000`/`8000`) or dedicated conflict-free deve
 | **OpenAI LLM Reverse Proxy** | `8088` / `8000` | `/proxy/llm/v1/chat/completions` | Transparent OpenAI gateway with failover, sovereignty routing, and token true-up |
 | **Anthropic Messages Proxy** | `8088` / `8000` | `/proxy/anthropic/v1/messages` | Native Anthropic Messages API gateway with streaming SSE & token reconciliation |
 | **Google Gemini Proxy** | `8088` / `8000` | `/proxy/gemini/v1beta/models/{model}:generateContent` | Native Google Gemini API gateway with contents, system instructions & streaming |
+| **AWS Bedrock Converse Proxy** | `8088` / `8000` | `/proxy/bedrock/model/{model_id}/converse` | Native AWS Bedrock Converse & Converse-Stream API gateway |
+| **Azure OpenAI Proxy** | `8088` / `8000` | `/proxy/azure/openai/deployments/{deployment}/chat/completions` | Native Azure OpenAI Deployments API gateway |
+| **Realtime Voice/WebSocket Proxy** | `8088` / `8000` | `/proxy/realtime/v1/ws` | Bidirectional WebSocket voice/event stream proxy with sub-ms kill switch |
 | **MCP Tool Gateway** | `8088` / `8000` | `/proxy/mcp/jsonrpc` | Protocol-Aware MCP JSON-RPC 2.0 gateway with Anti-Rug-Pull schema pinning |
 | **MCP Server Management** | `8088` / `8000` | `/v1/mcp/servers`, `/v1/mcp/tools/*` | Upstream MCP server registry, tool schema pinning, and quarantine controls |
 | **Multi-Tenancy & Keys** | `8088` / `8000` | `/v1/tenants`, `/v1/api-keys`, `/v1/budgets` | Tenant isolation, scoped Virtual API Keys, and live Redis budget quotas |

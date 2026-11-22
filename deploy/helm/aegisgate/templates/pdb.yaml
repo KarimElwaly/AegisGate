@@ -27,3 +27,4 @@ spec:
       {{- include "aegisgate.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: dashboard
 {{- end }}
+

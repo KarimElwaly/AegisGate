@@ -33,6 +33,8 @@ class KillSwitchService:
             return f"{prefix}kill:agent:{tenant_id}:{target}"
         elif scope == "tool":
             return f"{prefix}kill:tool:{tenant_id}:{target}"
+        elif scope == "session":
+            return f"{prefix}kill:session:{tenant_id}:{target}"
         return f"{prefix}kill:{scope}:{target}"
 
     async def set_kill_switch(
@@ -65,6 +67,58 @@ class KillSwitchService:
             reason=reason,
         )
         return key
+
+    async def engage(
+        self,
+        scope: str,
+        target: str = "",
+        reason: str = "Emergency kill switch activated",
+        tenant_id: str = "default",
+        operator: str = "admin",
+        ttl_seconds: int | None = None,
+    ) -> str:
+        """Convenience method to trip a kill switch, supporting 'scope:target' notation."""
+        if ":" in scope and not target:
+            scope_part, target_part = scope.split(":", 1)
+            scope = scope_part
+            target = target_part
+        return await self.set_kill_switch(
+            scope=scope,
+            target=target,
+            reason=reason,
+            tenant_id=tenant_id,
+            ttl_seconds=ttl_seconds,
+        )
+
+    async def is_tripped(
+        self,
+        tenant_id: str = "default",
+        workspace_id: str = "default",
+        agent_id: str = "default",
+        session_id: str | None = None,
+        tool_name: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """Checks if a kill switch is active across global, tenant, workspace, agent, session, or tool."""
+        is_killed, scope, reason = await self.check_kill_switches(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            tool_name=tool_name,
+        )
+        if is_killed:
+            return True, reason
+        if session_id:
+            prefix = get_settings().REDIS_KEY_PREFIX
+            session_key = f"{prefix}kill:session:{tenant_id}:{session_id}"
+            try:
+                redis = await get_redis_client()
+                val = await redis.get(session_key)
+                if val is not None:
+                    return True, str(val)
+            except Exception:
+                if session_key in self._local_kill_switches:
+                    return True, self._local_kill_switches[session_key]
+        return False, None
 
     async def remove_kill_switch(
         self,

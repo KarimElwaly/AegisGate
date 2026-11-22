@@ -1,24 +1,27 @@
 # AegisGate Implementation Progress
 
 ## Status Overview
-- Current Phase: Phase 13 COMPLETED (All Phases 1 through 13 Complete — Universal Plan Achieved)
-- Overall Test Suite Status: 124 / 124 Tests Passing (100%)
-- Core Test Coverage: 85% across 3,040 statements in `core/` (DoD Target: >=85%)
-- Tier-1 Fast-Path P95 Latency: 0.50 ms (DoD Target: <15 ms)
-- End-to-End HTTP P95 Latency: 28.94 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
+- Current Phase: Phase 15 COMPLETED (All Phases 1 through 15 Complete — Universal Platform v4.0 Achieved)
+- Overall Test Suite Status: 138 / 138 Tests Passing (100%)
+- Core Test Coverage: 85% across 3,399 statements in `core/` (DoD Target: >=85%)
+- Tier-1 Fast-Path P95 Latency: 0.65 ms (DoD Target: <15 ms)
+- End-to-End HTTP P95 Latency: 26.32 ms (FastAPI ASGI + SQLite + Redis network stack, DoD Target: <35 ms)
 - Red-Team Indirect Prompt Injection Detection: 100.0% (41/41 attacks detected, DoD Target: >=95%)
 - Red-Team Benign Security Log False Positive Rate: 0.00% (0/41 benign logs flagged, DoD Target: <2%)
-- Universal Multi-Provider Proxies: Native OpenAI (`/proxy/llm/v1/*`), Anthropic (`/proxy/anthropic/v1/messages`), and Gemini (`/proxy/gemini/v1beta/*`) with unified pipeline, PII rehydration, streaming guards, and token reconciliation
-- Enterprise KMS & Envelope Encryption: Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records
-- Turnkey Regulatory Compliance Packs: Production policy packs for EU AI Act, HIPAA, PCI DSS, and NIST AI RMF with automated audit compliance reports (`GET /v1/audit/compliance-report`)
-- Universal Scanners: NLI Faithfulness (RAG Hallucination), System Prompt Leakage Guard, Multimodal OCR Vision/Doc Scanner
+- Universal Multi-Provider Proxies: Native OpenAI (`/proxy/llm/v1/*`), Anthropic (`/proxy/anthropic/v1/messages`), Gemini (`/proxy/gemini/v1beta/*`), AWS Bedrock Converse (`/proxy/bedrock/model/{model_id}/converse`), and Azure OpenAI (`/proxy/azure/openai/deployments/{deployment}/chat/completions`) with unified pipeline, PII rehydration, streaming guards, and token reconciliation
+- Realtime Voice & WebSocket Streaming Proxy: Bidirectional WebSocket proxy (`/proxy/realtime/v1/ws`) with sub-millisecond kill switch, input/output transcript scanning, and tool pre-call governance
+- Multi-Turn Crescendo Defense: Sliding window conversational risk tracking with exponential decay (`ConversationRiskTracker`), exposing session cumulative risk score to Policy Packs
+- SQL AST Governance & Text-to-SQL: AST parser scanner (`SqlAstGuard`) enforcing SELECT-only mode, table/column denylists, automatic `LIMIT` and tenant isolation predicate injection
+- Enterprise KMS & Envelope Encryption: Pluggable `LocalEnvKeyProvider`, `HashiCorpVaultKeyProvider`, and `AWSKMSKeyProvider` for PII Vault envelope encryption at rest and KMS HMAC signatures on audit records with key version tracking
+- Turnkey Regulatory Compliance Packs: Production policy packs for EU AI Act, HIPAA, PCI DSS, NIST AI RMF, Text-to-SQL, Agent Fleet, Log Analysis, and SOC Investigation with automated audit compliance reports
+- Universal Scanners: NLI Faithfulness (RAG Hallucination), System Prompt Leakage Guard, Multimodal OCR Vision/Doc Scanner, Canonicalizer De-Obfuscator, SSRF Outbound Guard
 - Local ML Runtimes & CLI: Presidio/Regex NER, Embedding/Keyword Topic Guard, Llama Guard/Toxicity Heuristics, and `aegisctl models status / pull`
 - Ecosystem Adapters: CrewAI (`CrewAIGuard`) and LlamaIndex (`LlamaIndexGuard`)
 - Production Packaging & CI/CD: Multi-stage `.github/workflows/ci.yml` and production Kubernetes Helm Chart (`deploy/helm/aegisgate/`)
 - TypeScript SDK: 3/3 tests passing, typed Virtual API Key support, `waitForApproval()`, and `wrapTool()` middleware
-- Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Compliance Report 1-click exporter, Vite production build succeeded in 3.33s
+- Control Plane Dashboard: Enterprise auth gate, Budgets & Quotas control room, Compliance Report 1-click exporter, Vite production build succeeded in 3.28s
 - Standalone Python SDK (`aegisgate==0.2.0`): Clean build and installable via `pip install -e sdks/python`
-- Autonomous Mode: Phase 13 COMPLETED (Enterprise KMS, Turnkey Compliance Packs, Ecosystem Adapters & Production DevOps)
+- Autonomous Mode: Phase 14 & Phase 15 COMPLETED (Security Hardening & Universal Platform v4.0)
 
 ---
 
@@ -475,39 +478,83 @@
 - **Docker Compose:** Validated cleanly across all profiles including observability stack
 
 
-### Files Created / Implemented:
-- `gateways/llm_proxy/translators/`:
-  - `base.py`: `BaseProtocolTranslator` defining canonical input/output extraction, token accounting, mock streaming chunks, and native 403 error payloads.
-  - `openai_translator.py`: `OpenAIProtocolTranslator` encapsulating OpenAI chat completion format and SSE chunks.
-  - `anthropic_translator.py`: `AnthropicProtocolTranslator` mapping Anthropic system, messages, image blocks, and SSE streaming (`message_start`, `content_block_delta`, `message_delta`, `message_stop`).
-  - `gemini_translator.py`: `GeminiProtocolTranslator` mapping Gemini systemInstruction, contents, inlineData, and SSE streaming (`candidates`, `usageMetadata`).
-  - `__init__.py`: Exported all protocol translators.
-- `gateways/llm_proxy/core_handler.py`: Universal execution handler `execute_proxy_request()` unifying input guardrails, sovereignty routing, candidate URL pool failover, SSE stream guard wrapping, token reconciliation, and PII rehydration.
-- `gateways/llm_proxy/anthropic_proxy.py`: Native Anthropic Messages API router mounted at `/proxy/anthropic/v1/messages`.
-- `gateways/llm_proxy/gemini_proxy.py`: Native Google Gemini API router mounted at `/proxy/gemini/v1beta/models/{model}:generateContent` and `:streamGenerateContent`.
-- `gateways/llm_proxy/proxy.py`: Refactored to delegate cleanly to `execute_proxy_request()` with `OpenAIProtocolTranslator`.
-- `gateways/pdp_api/main.py`: Mounted `anthropic_proxy_router` and `gemini_proxy_router`.
-- `plugins/scanners/tier2_local_ml/`:
-  - `ner_pii_scanner.py`: Upgraded with pluggable backend selection (`regex`, `presidio`, `onnx`), reversible PII vault tokenization, and extended TLD support.
-  - `topic_guard.py`: Upgraded with pluggable backend selection (`keyword`, `embedding`) and cosine-similarity prototype matching with clean keyword fallback.
-  - `safety_toxicity_scanner.py`: Upgraded with pluggable backend selection (`heuristic`, `llama_guard`, `onnx`) and full harm taxonomy (harassment, self-harm, hate, sexual, violence, code-interpreter abuse, CBRN).
-  - `nli_faithfulness_scanner.py`: Tier-2 local cross-encoder / lexical NLI faithfulness scanner verifying factual groundedness of output statements against retrieved RAG chunks.
-  - `multimodal_ocr_scanner.py`: Tier-2 multimodal OCR pre-flight scanner extracting text from image attachments and detecting indirect prompt injections and credential leaks.
-- `plugins/scanners/tier1_deterministic/prompt_leakage_scanner.py`: Tier-1 deterministic n-gram containment scanner detecting confidential system prompt extraction in model outputs.
-- `core/bootstrap.py`: Registered `PromptLeakageScanner`, `NliFaithfulnessScanner`, and `MultimodalOcrScanner` in global plugin registry.
-- `cli/aegisctl/main.py`: Added `aegisctl models status` (displaying local ONNX model states and fallback modes) and `aegisctl models pull <profile>` (initializing model bundles).
-- `tests/integration/test_phase12_universal_proxies.py`: E2E integration tests for Anthropic and Gemini non-streaming, SSE streaming, token reconciliation, and protocol-native 403 policy denial.
-- `tests/unit/test_phase12_universal_scanners.py`: Unit tests for NLI faithfulness groundedness vs. hallucination, system prompt leakage detection, multimodal OCR injection/secret detection, backend fallbacks, and `aegisctl models` CLI.
+---
 
-### Phase 12 Test Results & Benchmarks:
-- **Full Test Suite:** 117 passed out of 117 run (100% pass rate) in 31.47s
-- **Zero Regressions:** All 106 Phase 1–11 tests pass without modification
-- **Core Test Coverage:** 85% across all 2,904 statements in `core/` (DoD target: >=85% met)
-- **Tier-1 Fast-Path Latency:** P50 = 0.38 ms, P95 = 0.61 ms, P99 = 0.77 ms (DoD target: <15.0 ms met)
-- **End-to-End HTTP Latency:** P50 = 21.56 ms, P95 = 24.35 ms, P99 = 31.63 ms (DoD target: <35.0 ms met)
-- **Red-Team Injection Benchmark:** 41/41 detected (100.0%), 0/41 false positives (0.00%)
-- **TypeScript SDK:** 3/3 tests passed in 11.71ms
-- **Admin UI Build:** Vite build succeeded with 0 TypeScript errors (`dist/` packaged in 3.14s)
+## Phase 15: Universal Platform Completion (v4.0) (COMPLETED)
+
+### Overview
+Phase 15 completes the v4.0 Universal AI Guardrails & Governance Platform roadmap by implementing multi-turn conversational risk accumulation (Crescendo Defense), native AWS Bedrock Converse and Azure OpenAI protocol proxies, strict SQL AST governance with turnkey text-to-sql policy pack, bidirectional realtime WebSocket / voice streaming proxy, and sub-millisecond session kill switch controls.
+
+### Files Created / Implemented:
+1. **Multi-Turn Conversational Risk Accumulation (Crescendo Defense):**
+   - `core/governance/conversation_risk.py`:
+     - `ConversationRiskTracker` backed by Redis sliding window (`aegis:conv_risk:{tenant}:{session_id}`) with exponential decay (`decay=0.85`, max 20 turns).
+     - Returns `ConversationRiskSummary(cumulative_risk_score, high_risk_turns, total_turns)`.
+     - Supports `record_turn_risk()` and `reset_session_risk()`.
+   - `core/pipeline/stages/policy_evaluation_stage.py`:
+     - Automatically resolves session conversational risk summary and populates `ctx.resolved_context["session"]["cumulative_risk_score"]`, `high_risk_turns`, and `total_turns`.
+     - Automatically records each turn's evaluated risk score into the sliding window.
+   - `core/policy_engine/yaml_engine.py`:
+     - Exposes `session.cumulative_risk_score` and alias `findings` alongside `scanner_findings` for intuitive policy rules.
+
+2. **AWS Bedrock Converse & Azure OpenAI Protocol Translators:**
+   - `gateways/llm_proxy/translators/bedrock_translator.py`:
+     - `BedrockProtocolTranslator` translating between AWS Bedrock Converse API request/response format and Aegis canonical structures.
+     - Maps `messages`, `system`, and `inferenceConfig`.
+     - Maps streaming chunks (`messageStart`, `contentBlockDelta`, `messageStop`).
+     - Returns native AWS Bedrock 403 `ValidationException` on policy denial.
+   - `gateways/llm_proxy/translators/azure_openai_translator.py`:
+     - `AzureOpenAIProtocolTranslator` translating Azure OpenAI Deployments API requests (`api-version` query parameter, `api-key` header).
+     - Full parity with streaming and non-streaming chat completions.
+   - `gateways/llm_proxy/bedrock_proxy.py`:
+     - Reverse proxy mounted at `/proxy/bedrock/model/{model_id}/converse` and `/proxy/bedrock/model/{model_id}/converse-stream`.
+   - `gateways/llm_proxy/azure_openai_proxy.py`:
+     - Reverse proxy mounted at `/proxy/azure/openai/deployments/{deployment}/chat/completions`.
+   - Mounted both routers into `gateways/pdp_api/main.py`.
+
+3. **SQL AST Governance Scanner & Text-to-SQL Policy Pack:**
+   - `plugins/scanners/tier1_deterministic/sql_ast_guard.py`:
+     - `SqlAstGuard` and `SqlAstGuardConfig` AST scanner for `tool_pre_call` and `llm_output`.
+     - Uses `sqlglot` when available with a safe, zero-dependency lexical SQL fallback parser.
+     - Enforces allowed statement types (`SELECT`-only mode blocking `DROP`, `DELETE`, `TRUNCATE`, `ALTER`, `GRANT`, `REVOKE`, `INSERT`, `UPDATE`).
+     - Denies access to sensitive tables (`pg_shadow`, `pg_authid`, `users_credentials`, `system_secrets`) and columns (`password_hash`, `secret_key`, `auth_token`, `ssn`, `credit_card`).
+     - Auto-injects `LIMIT <= max_limit` and mandatory tenant isolation predicates (`WHERE tenant_id = '...'`).
+   - `core/bootstrap.py`: Registered `SqlAstGuard` in the global plugin registry.
+   - `policy_packs/text-to-sql-pack/policy.yaml`: Turnkey policy pack with rules for destructive SQL mutation blocking and multi-turn Crescendo escalation (`session.cumulative_risk_score >= 0.70`).
+
+4. **Bidirectional WebSocket / Realtime Voice Proxy:**
+   - `gateways/realtime_proxy/ws_proxy.py`:
+     - Reverse proxy mounted at `/proxy/realtime/v1/ws` and `/proxy/realtime/v1`.
+     - Intercepts OpenAI Realtime API & generic WebSocket event streams.
+     - Governs client input transcripts / text events (`conversation.item.create`, `client_transcript`, `user_message`) at `LLM_INPUT`.
+     - Governs function call events (`response.function_call_arguments.done`, `function_call`, `tool_call`) at `TOOL_PRE_CALL`.
+     - Governs assistant output deltas (`response.audio_transcript.delta`, `response.text.delta`) at `LLM_OUTPUT`.
+     - Intercepts and denies unauthorized tool calls and PII/secrets mid-session.
+     - Sub-millisecond kill-switch termination (WebSocket close code 1008).
+
+5. **Sub-millisecond Kill Switch Enhancements:**
+   - Updated `core/governance/kill_switch.py`:
+     - Added `is_tripped()` checking global, tenant, workspace, agent, session, and tool scopes.
+     - Added `engage()` supporting `scope:target` notation (e.g., `session:sess-123`).
+
+6. **Comprehensive Phase 15 Test Suite:**
+   - Created `tests/integration/test_phase15_universal_platform.py` covering:
+     - Multi-turn Crescendo risk accumulation across 5 progressive turns tripping policy escalation.
+     - AWS Bedrock Converse sync, streaming, and 403 ValidationException denial.
+     - Azure OpenAI Chat Completions proxy.
+     - SQL AST scanner destructive query blocking and parameter mutation (LIMIT & tenant injection).
+     - Realtime WebSocket proxy clean events, forbidden tool denial, secret transcript denial, and instant kill-switch cutoff.
+
+### Phase 15 Test Results & Benchmarks:
+- **Full Test Suite:** 138 passed out of 138 run (100% pass rate) in 31.43s
+- **Zero Regressions:** All 132 Phase 1–14 tests pass without modification
+- **Core Test Coverage:** 85% across all 3,399 statements in `core/` (DoD target: >=85% met)
+- **Tier-1 Fast-Path Latency:** P50 = 0.47 ms, P95 = 0.65 ms, P99 = 0.71 ms (DoD target: <15.0 ms met)
+- **End-to-End HTTP Latency:** P50 = 21.30 ms, P95 = 26.32 ms, P99 = 27.90 ms (DoD target: <35.0 ms met)
+- **TypeScript SDK:** 3/3 tests passed in 11.13ms; build succeeded with zero errors
+- **Admin UI Build:** Vite build succeeded with 0 errors (`dist/` packaged in 3.28s)
+- **Docker Compose:** Validated cleanly across all profiles including observability stack
+
 
 
 

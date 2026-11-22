@@ -228,6 +228,7 @@ class YamlPolicyEngine(PolicyEngineInterface):
             "metadata": request.metadata,
             "resolved_context": resolved_context,
             "scanner_findings": findings_map,
+            "findings": findings_map,
             "scanner_status": findings_status_map,
             "session": session_info,
         }

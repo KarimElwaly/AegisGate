@@ -3,6 +3,12 @@ from core.governance.budgets import (
     default_budget_manager,
     get_budget_manager,
 )
+from core.governance.conversation_risk import (
+    ConversationRiskSummary,
+    ConversationRiskTracker,
+    default_conversation_risk_tracker,
+    get_conversation_risk_tracker,
+)
 from core.governance.delegation import (
     DelegationPolicyConfig,
     DelegationValidator,
@@ -27,17 +33,21 @@ from core.governance.taint_tracker import (
 
 __all__ = [
     "BudgetManager",
+    "ConversationRiskSummary",
+    "ConversationRiskTracker",
     "DelegationPolicyConfig",
     "DelegationValidator",
     "KillSwitchService",
     "LoopDetector",
     "TaintTracker",
     "default_budget_manager",
+    "default_conversation_risk_tracker",
     "default_delegation_validator",
     "default_kill_switch_service",
     "default_loop_detector",
     "default_taint_tracker",
     "get_budget_manager",
+    "get_conversation_risk_tracker",
     "get_delegation_validator",
     "get_kill_switch_service",
     "get_loop_detector",

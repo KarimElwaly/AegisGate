@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "node ../../dashboard/node_modules/typescript/bin/tsc",
     "test": "node --test tests/client.test.mjs"
   },
   "keywords": ["ai", "guardrails", "security", "governance"],

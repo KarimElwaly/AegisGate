@@ -1,0 +1,83 @@
+id: text-to-sql-pack
+name: Text-to-SQL Governance Policy Pack
+version: 1.0.0
+execution_mode: enforce
+description: Strict SQL AST parsing, destructive statement blocking, sensitive table/column protection, LIMIT enforcement, and multi-tenant isolation.
+
+scanners:
+  - name: sql_ast_guard
+    enabled: true
+    tier: 1
+    timeout_ms: 100
+    on_timeout: deny
+    config:
+      allowed_statement_types:
+        - SELECT
+      blocked_statement_types:
+        - DROP
+        - DELETE
+        - TRUNCATE
+        - ALTER
+        - GRANT
+        - REVOKE
+        - INSERT
+        - UPDATE
+      denied_tables:
+        - pg_shadow
+        - pg_authid
+        - users_credentials
+        - system_secrets
+        - customers_credentials
+      denied_columns:
+        - password
+        - password_hash
+        - secret_key
+        - auth_token
+        - ssn
+        - credit_card
+      enforce_limit: true
+      max_limit: 100
+      auto_inject_limit: true
+      enforce_tenant_predicate: true
+      tenant_column: tenant_id
+      auto_inject_tenant_predicate: true
+
+  - name: secrets_scanner
+    enabled: true
+    tier: 1
+    timeout_ms: 100
+    on_timeout: flag
+
+rules:
+  - id: block_destructive_sql_mutation
+    name: Block Destructive SQL Statements
+    severity: CRITICAL
+    stage: tool_pre_call
+    priority: 10
+    condition:
+      field: scanner_findings.sql_ast_guard.status
+      operator: eq
+      value: block
+    action:
+      decision: DENY
+      reason: Destructive or unauthorized SQL statement blocked by Text-to-SQL Governance Pack
+      compliance_tags:
+        - OWASP-LLM02
+        - SQL-AST-GUARD
+        - PCI-DSS-6.5
+
+  - id: crescendo_multi_turn_escalation
+    name: Escalate Multi-Turn Crescendo Risk
+    severity: HIGH
+    stage: llm_input
+    priority: 20
+    condition:
+      field: session.cumulative_risk_score
+      operator: gte
+      value: 0.70
+    action:
+      decision: DENY
+      reason: Multi-turn Crescendo jailbreak attempt detected (cumulative session risk exceeded 0.70)
+      compliance_tags:
+        - OWASP-LLM01
+        - CRESCENDO-DEFENSE

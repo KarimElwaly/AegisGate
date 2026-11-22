@@ -21,3 +21,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("audit_records", "kms_key_version")
+

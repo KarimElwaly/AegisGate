@@ -17,6 +17,7 @@ from plugins.scanners.tier1_deterministic.pii_scanner import PiiScanner
 from plugins.scanners.tier1_deterministic.prompt_leakage_scanner import PromptLeakageScanner
 from plugins.scanners.tier1_deterministic.rag_acl_guard import RagAclGuardScanner
 from plugins.scanners.tier1_deterministic.secrets_scanner import SecretsScanner
+from plugins.scanners.tier1_deterministic.sql_ast_guard import SqlAstGuard
 from plugins.scanners.tier1_deterministic.tool_param_guard import ToolParamGuard
 from plugins.scanners.tier2_local_ml.multimodal_ocr_scanner import MultimodalOcrScanner
 from plugins.scanners.tier2_local_ml.ner_pii_scanner import NerPiiScanner
@@ -44,6 +45,7 @@ def bootstrap_system() -> None:
     # 1. Register Tier-1 Deterministic Scanners
     registry.register_scanner(SecretsScanner())
     registry.register_scanner(PiiScanner())
+    registry.register_scanner(SqlAstGuard())
     registry.register_scanner(PromptLeakageScanner())
     registry.register_scanner(JsonSchemaScanner())
     registry.register_scanner(ToolParamGuard())
