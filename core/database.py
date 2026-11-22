@@ -58,6 +58,18 @@ def get_engine() -> AsyncEngine:
             settings.DATABASE_URL,
             **engine_kwargs,
         )
+        if "sqlite" in settings.DATABASE_URL:
+            from sqlalchemy import event
+
+            @event.listens_for(_engine.sync_engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                try:
+                    cursor = dbapi_connection.cursor()
+                    cursor.execute("PRAGMA journal_mode=WAL")
+                    cursor.execute("PRAGMA synchronous=NORMAL")
+                    cursor.close()
+                except Exception:
+                    pass
     return _engine
 
 

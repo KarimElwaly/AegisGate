@@ -49,7 +49,8 @@ class AuditShadowStage:
                 eff_mode_str = ctx.effective_mode.value if hasattr(ctx.effective_mode, "value") else str(ctx.effective_mode)
                 would_dec_str = ctx.would_have_decided.value if hasattr(ctx.would_have_decided, "value") else str(ctx.would_have_decided)
 
-                if getattr(req, "record_audit_sync", False) or get_settings().AEGIS_ENV == "test":
+                sync_audit = getattr(req, "record_audit_sync", None)
+                if sync_audit is True or (sync_audit is None and get_settings().AEGIS_ENV == "test"):
                     await ledger.record_event(
                         request=req,
                         verdict=verdict,

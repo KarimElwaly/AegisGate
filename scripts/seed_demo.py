@@ -67,6 +67,28 @@ async def seed_tenant_and_users() -> dict:
         else:
             print(f"   [*] User {admin_email} already exists (Tenant: {user.tenant_id})")
 
+        # Also provision author and auditor demo preset users if not present
+        demo_presets = [
+            ("author", "author@acme.corp", "authorpass123", "PolicyAuthor"),
+            ("auditor", "auditor@acme.corp", "auditpass123", "Auditor"),
+        ]
+        for uname, uemail, upass, urole in demo_presets:
+            stmt_demo = select(UserRecord).where(UserRecord.username == uname)
+            res_demo = await session.execute(stmt_demo)
+            if not res_demo.scalar_one_or_none():
+                d_user = UserRecord(
+                    id=str(uuid.uuid4()),
+                    tenant_id=tenant_id,
+                    username=uname,
+                    email=uemail,
+                    hashed_password=hash_password(upass),
+                    role=urole,
+                    is_active=True,
+                )
+                session.add(d_user)
+                await session.commit()
+                print(f"   [+] Created preset user: {uname} ({urole})")
+
         # Issue demo API key
         print(" [3/5] Issuing scoped API keys...")
         key_name = "acme-production-key"

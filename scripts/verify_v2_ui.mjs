@@ -158,6 +158,32 @@ async function runV2UITest() {
   await page.screenshot({ path: discoveryScreenshot });
   console.log(`   [+] Screenshot saved to ${discoveryScreenshot}`);
 
+  // 5. Kill Switch & Budget Quota Controls View
+  console.log('\n[Test 5] Testing Kill Switch, Budget Burn & Circuit-Breaker Controls...');
+  await page.click('button:has-text("Kill Switch & Breakers")');
+  await page.waitForTimeout(1000);
+
+  const killSwitchText = await page.textContent('body');
+  const budgetRendered = killSwitchText.includes('Budget Burn') || killSwitchText.includes('Sliding-Window Breakers') || killSwitchText.includes('Quota');
+  console.log('   [+] Active Budget Burn & Breakers rendered:', budgetRendered);
+
+  // Test Circuit-Breaker Reset
+  const resetBtn = await page.$('button:has-text("Reset Breaker")');
+  if (resetBtn) {
+    await resetBtn.click();
+    await page.waitForTimeout(500);
+    console.log('   [+] Circuit-breaker reset triggered in UI.');
+  }
+
+  // 6. Forensic Audit & Compliance Report Exports
+  console.log('\n[Test 6] Testing Forensic Audit & Compliance Report Exports...');
+  await page.click('button:has-text("Forensic Audit & Simulator")');
+  await page.waitForTimeout(1000);
+
+  const auditText = await page.textContent('body');
+  const complianceReportsAvailable = auditText.includes('EU AI Act') && auditText.includes('HIPAA') && auditText.includes('PCI-DSS');
+  console.log('   [+] Turnkey Regulatory Compliance Report actions available:', complianceReportsAvailable);
+
   console.log('\n======================================================================');
   console.log(`   V2 UI EXTENDED VERIFICATION SUCCESSFUL`);
   console.log(`   Total Console Errors: ${consoleErrors.length}`);

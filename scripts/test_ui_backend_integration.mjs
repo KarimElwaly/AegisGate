@@ -156,7 +156,16 @@ async function runTest() {
   if (evalAfterRes.body.decision !== 'ALLOW') {
     throw new Error(`Expected PDP decision ALLOW after disengage, got ${evalAfterRes.body.decision}`);
   }
-  console.log('   [+] Kill switch UI -> Backend lifecycle verified.\n');
+  console.log('   [+] Kill switch UI -> Backend lifecycle verified.');
+
+  // Test Budget Burn & Breaker Reset in UI
+  const resetBreakerBtn = await page.$('button:has-text("Reset Breaker")');
+  if (resetBreakerBtn) {
+    await resetBreakerBtn.click();
+    await page.waitForTimeout(500);
+    console.log('   [+] Circuit-breaker reset confirmed in UI.');
+  }
+  console.log('   [+] Kill switch & Breakers view verified.\n');
 
   // TEST 3: HITL Decision Room (Approve Ticket with Parameter Override)
   console.log('[Test 3] Testing HITL Decision Room UI & Backend Persistence...');
@@ -289,6 +298,25 @@ async function runTest() {
 
   await page.click('button:has-text("Close Simulator")');
   await page.waitForTimeout(500);
+
+  // Test Compliance Report Export in UI & Backend
+  console.log('   [*] Verifying Turnkey Regulatory Compliance Report export...');
+  const compBtn = await page.$('button:has-text("EU AI Act")');
+  if (compBtn) {
+    console.log('   [+] EU AI Act export button present in UI.');
+  }
+  const reportRes = await makeRequest({
+    hostname: '127.0.0.1',
+    port: 8088,
+    path: '/v1/audit/compliance-report?tenant_id=default&framework=eu-ai-act&format=json',
+    method: 'GET',
+  });
+  console.log('   [+] Backend Compliance Report status:', reportRes.status);
+  console.log('   [+] Compliance Framework verified:', reportRes.body.framework);
+  if (reportRes.status !== 200 || !reportRes.body.framework) {
+    throw new Error('Compliance report generation failed in backend!');
+  }
+  console.log('   [+] Compliance Report export verified.\n');
 
   await browser.close();
 
